@@ -42,8 +42,8 @@
     <h1>📖 Add a Book</h1>
 
     <div class="method-tabs">
-        <a class="method-tab active" href="/add">✏️ Manual</a>
-        <span class="method-tab disabled">📷 Scan</span>
+        <a class="method-tab active" href="/add{% if from_box %}?box_id={{ from_box }}{% endif %}">✏️ Manual</a>
+        <a class="method-tab" href="/scan{% if from_box %}?box_id={{ from_box }}{% endif %}">📷 Scan</a>
         <span class="method-tab disabled">📦 Batch</span>
     </div>
 

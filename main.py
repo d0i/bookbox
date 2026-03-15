@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 
 from db import init_db, get_db
 from suggest import suggest_box
+from isbn_lookup import lookup_isbn
 
 app = FastAPI(title="BookBox")
 templates = Jinja2Templates(directory="templates")
@@ -143,6 +144,28 @@ def api_suggest(author: str = "", genre: str = ""):
     box_id, reason = suggest_box(conn, author, genre)
     conn.close()
     return JSONResponse({"box_id": box_id, "reason": reason})
+
+
+# ── ISBN lookup API ────────────────────────────────
+
+@app.get("/api/isbn/{isbn}")
+def api_isbn(isbn: str):
+    candidates = lookup_isbn(isbn)
+    return JSONResponse({"isbn": isbn, "candidates": candidates})
+
+
+# ── Scan page ─────────────────────────────────────
+
+@app.get("/scan", response_class=HTMLResponse)
+def scan_page(request: Request, box_id: str = ""):
+    conn = get_db()
+    fb = _from_box_ctx(conn, box_id)
+    ctx = _add_ctx(conn)
+    if fb["from_box"]:
+        ctx["suggested_box"] = fb["from_box"]
+        ctx["suggestion_reason"] = ""
+    conn.close()
+    return templates.TemplateResponse("scan.html", {"request": request, **fb, **ctx})
 
 
 if __name__ == "__main__":

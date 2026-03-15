@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Barcode</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: #f5f5f5; color: #333; padding: 16px; max-width: 600px; margin: 0 auto; }
+        h1 { font-size: 1.4rem; margin-bottom: 16px; }
+        .back { text-decoration: none; color: #1976d2; font-size: 0.9rem; display: inline-block; margin-bottom: 12px; }
+        .method-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .method-tab { flex: 1; text-align: center; padding: 10px 8px; border-radius: 8px; font-size: 0.85rem;
+                      text-decoration: none; color: #666; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .method-tab.active { background: #1976d2; color: #fff; }
+        .method-tab.disabled { opacity: 0.45; pointer-events: none; }
+
+        /* Scanner */
+        .scanner-wrap { background: #000; border-radius: 10px; overflow: hidden; margin-bottom: 16px; position: relative; }
+        #reader { width: 100%; }
+        #reader video { border-radius: 10px; }
+        .scan-status { text-align: center; padding: 12px; font-size: 0.9rem; color: #666; }
+        .scan-status.found { color: #4caf50; font-weight: 600; }
+        .scan-status.error { color: #f44336; }
+
+        /* Manual ISBN */
+        .manual-isbn { display: flex; gap: 8px; margin-bottom: 16px; }
+        .manual-isbn input { flex: 1; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 1rem; }
+        .manual-isbn button { padding: 10px 16px; background: #1976d2; color: #fff; border: none; border-radius: 8px;
+                               font-size: 0.9rem; white-space: nowrap; cursor: pointer; }
+
+        /* Candidates */
+        .candidates { margin-bottom: 16px; }
+        .candidate { background: #fff; border: 2px solid #e0e0e0; border-radius: 10px; padding: 14px;
+                     margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s; }
+        .candidate:active, .candidate.selected { border-color: #1976d2; background: #e3f2fd; }
+        .candidate .src { font-size: 0.75rem; color: #999; margin-bottom: 4px; }
+        .candidate .title { font-weight: 700; font-size: 1.05rem; }
+        .candidate .meta { font-size: 0.85rem; color: #555; margin-top: 2px; }
+        .no-results { background: #fff3e0; border-radius: 8px; padding: 14px; text-align: center; color: #e65100; margin-bottom: 16px; }
+
+        /* Confirm form */
+        .confirm-form { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                        display: none; }
+        .confirm-form.show { display: block; }
+        .confirm-form label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; margin-top: 14px; }
+        .confirm-form label:first-child { margin-top: 0; }
+        .confirm-form input, .confirm-form select { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd;
+                                                     border-radius: 8px; font-size: 1rem; background: #fafafa; }
+        .confirm-form input:focus, .confirm-form select:focus { outline: none; border-color: #1976d2; background: #fff; }
+        .submit-btn { display: block; width: 100%; padding: 12px; margin-top: 20px; background: #4caf50;
+                      color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+        .submit-btn:active { background: #388e3c; }
+        .scan-again-btn { display: block; width: 100%; padding: 10px; margin-top: 10px; background: #fff;
+                          color: #1976d2; border: 1.5px solid #1976d2; border-radius: 8px; font-size: 0.95rem;
+                          font-weight: 600; cursor: pointer; text-align: center; }
+
+        /* Success */
+        .success { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 8px; padding: 14px;
+                   margin-bottom: 16px; }
+        .success a { color: #1976d2; font-weight: 600; }
+
+        /* Loading */
+        .loading { text-align: center; padding: 20px; }
+        .spinner { display: inline-block; width: 28px; height: 28px; border: 3px solid #ddd;
+                   border-top-color: #1976d2; border-radius: 50%; animation: spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    {% if from_box %}
+    <a class="back" href="/box/{{ from_box }}">&larr; Back to {{ from_box_label }}</a>
+    {% else %}
+    <a class="back" href="/">&larr; All Boxes</a>
+    {% endif %}
+    <h1>📷 Scan Barcode</h1>
+
+    <div class="method-tabs">
+        <a class="method-tab" href="/add{% if from_box %}?box_id={{ from_box }}{% endif %}">✏️ Manual</a>
+        <a class="method-tab active" href="/scan{% if from_box %}?box_id={{ from_box }}{% endif %}">📷 Scan</a>
+        <span class="method-tab disabled">📦 Batch</span>
+    </div>
+
+    <!-- Success banner (shown after add) -->
+    <div id="successBanner" class="success hidden"></div>
+
+    <!-- Phase 1: Scanner -->
+    <div id="scanPhase">
+        <div class="scanner-wrap">
+            <div id="reader"></div>
+        </div>
+        <div id="scanStatus" class="scan-status">Point your camera at a book barcode (ISBN)</div>
+
+        <p style="text-align:center; color:#999; font-size:0.85rem; margin: 12px 0 6px;">or enter ISBN manually</p>
+        <div class="manual-isbn">
+            <input type="text" id="manualIsbn" placeholder="e.g. 978-4-10-101001-4" inputmode="numeric">
+            <button onclick="lookupManual()">Look up</button>
+        </div>
+    </div>
+
+    <!-- Phase 2: Loading -->
+    <div id="loadingPhase" class="hidden">
+        <div class="loading">
+            <div class="spinner"></div>
+            <p style="margin-top:10px; color:#666;">Looking up ISBN <span id="loadingIsbn"></span> …</p>
+        </div>
+    </div>
+
+    <!-- Phase 3: Candidates -->
+    <div id="resultPhase" class="hidden">
+        <div id="candidateList" class="candidates"></div>
+        <div id="noResults" class="no-results hidden">
+            No results found for this ISBN.<br>You can enter the details manually below.
+        </div>
+
+        <div id="confirmForm" class="confirm-form show">
+            <form method="POST" action="/add" id="addForm">
+                {% if from_box %}<input type="hidden" name="from_box" value="{{ from_box }}">{% endif %}
+                <label for="cf_title">Title</label>
+                <input type="text" id="cf_title" name="title" required>
+
+                <label for="cf_author">Author</label>
+                <input type="text" id="cf_author" name="author" required>
+
+                <label for="cf_genre">Genre</label>
+                <input type="text" id="cf_genre" name="genre">
+
+                <label for="cf_box">Box</label>
+                <select id="cf_box" name="box_id">
+                    {% for box in boxes %}
+                    <option value="{{ box.id }}" {% if box.id == suggested_box %}selected{% endif %}>
+                        {{ box.label }} ({{ box.book_count }}/{{ box.max_capacity }})
+                        {%- if box.id == suggested_box %} ⭐{% endif %}
+                        {%- if box.book_count >= box.max_capacity %} — FULL{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+
+                <button type="submit" class="submit-btn">✅ Add This Book</button>
+            </form>
+            <button class="scan-again-btn" onclick="resetScanner()">📷 Scan Another</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        const FROM_BOX = '{{ from_box or "" }}';
+        let scanner = null;
+        let lastScanned = '';
+
+        // ── Scanner setup ─────────────────────────
+        function startScanner() {
+            scanner = new Html5Qrcode("reader");
+            scanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 280, height: 120 }, formatsToSupport: [
+                    Html5QrcodeSupportedFormats.EAN_13,
+                    Html5QrcodeSupportedFormats.EAN_8,
+                    Html5QrcodeSupportedFormats.UPC_A,
+                    Html5QrcodeSupportedFormats.UPC_E,
+                    Html5QrcodeSupportedFormats.CODE_128,
+                ]},
+                onScanSuccess,
+                () => {} // ignore scan failures
+            ).then(() => { scannerRunning = true; })
+            .catch(err => {
+                document.getElementById('scanStatus').textContent = 'Camera not available. Enter ISBN manually.';
+                document.getElementById('scanStatus').className = 'scan-status error';
+            });
+        }
+
+        let scannerRunning = false;
+
+        function stopScanner() {
+            if (scanner && scannerRunning) {
+                try { scanner.stop().catch(() => {}); } catch(e) {}
+                scannerRunning = false;
+            }
+        }
+
+        function onScanSuccess(decodedText) {
+            // Debounce: don't re-scan same code
+            if (decodedText === lastScanned) return;
+            lastScanned = decodedText;
+
+            // Only accept ISBN-like codes (10 or 13 digits)
+            const clean = decodedText.replace(/[^0-9X]/gi, '');
+            if (clean.length !== 10 && clean.length !== 13) {
+                document.getElementById('scanStatus').textContent = 'Not an ISBN. Try again…';
+                document.getElementById('scanStatus').className = 'scan-status error';
+                lastScanned = '';  // allow rescan
+                return;
+            }
+
+            document.getElementById('scanStatus').textContent = '✅ Scanned: ' + clean;
+            document.getElementById('scanStatus').className = 'scan-status found';
+            stopScanner();
+            doLookup(clean);
+        }
+
+        // ── Manual ISBN entry ────────────────────
+        function lookupManual() {
+            const raw = document.getElementById('manualIsbn').value.trim();
+            const clean = raw.replace(/[^0-9X]/gi, '');
+            if (clean.length !== 10 && clean.length !== 13) {
+                alert('Please enter a valid 10- or 13-digit ISBN.');
+                return;
+            }
+            stopScanner();
+            doLookup(clean);
+        }
+
+        // Enter key on manual input
+        document.getElementById('manualIsbn').addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); lookupManual(); }
+        });
+
+        // ── Lookup ────────────────────────────
+        function doLookup(isbn) {
+            document.getElementById('scanPhase').classList.add('hidden');
+            document.getElementById('resultPhase').classList.add('hidden');
+            document.getElementById('loadingPhase').classList.remove('hidden');
+            document.getElementById('loadingIsbn').textContent = isbn;
+
+            fetch('/api/isbn/' + isbn)
+                .then(r => r.json())
+                .then(data => showResults(data.isbn, data.candidates))
+                .catch(() => showResults(isbn, []));
+        }
+
+        // ── Show results ────────────────────────
+        function showResults(isbn, candidates) {
+            document.getElementById('loadingPhase').classList.add('hidden');
+            document.getElementById('resultPhase').classList.remove('hidden');
+
+            const list = document.getElementById('candidateList');
+            const noRes = document.getElementById('noResults');
+            list.innerHTML = '';
+
+            if (candidates.length === 0) {
+                noRes.classList.remove('hidden');
+                // Pre-fill empty form for manual entry
+                fillForm('', '', '');
+                return;
+            }
+            noRes.classList.add('hidden');
+
+            candidates.forEach((c, i) => {
+                const div = document.createElement('div');
+                div.className = 'candidate' + (i === 0 ? ' selected' : '');
+                div.innerHTML = `
+                    <div class="src">📚 ${c.source}</div>
+                    <div class="title">${esc(c.title)}</div>
+                    <div class="meta">${esc(c.author)}${c.genre ? ' · ' + esc(c.genre) : ''}</div>
+                `;
+                div.addEventListener('click', () => {
+                    list.querySelectorAll('.candidate').forEach(el => el.classList.remove('selected'));
+                    div.classList.add('selected');
+                    fillForm(c.title, c.author, c.genre);
+                });
+                list.appendChild(div);
+            });
+
+            // Auto-select first
+            const first = candidates[0];
+            fillForm(first.title, first.author, first.genre);
+        }
+
+        function fillForm(title, author, genre) {
+            document.getElementById('cf_title').value = title;
+            document.getElementById('cf_author').value = author;
+            document.getElementById('cf_genre').value = genre;
+            // Fetch box suggestion if not in from_box context
+            if (!FROM_BOX && (author || genre)) {
+                const params = new URLSearchParams();
+                if (author) params.set('author', author);
+                if (genre) params.set('genre', genre);
+                fetch('/api/suggest-box?' + params)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.box_id) document.getElementById('cf_box').value = data.box_id;
+                    }).catch(() => {});
+            }
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // ── Reset / Scan again ─────────────────
+        function resetScanner() {
+            lastScanned = '';
+            document.getElementById('resultPhase').classList.add('hidden');
+            document.getElementById('loadingPhase').classList.add('hidden');
+            document.getElementById('scanPhase').classList.remove('hidden');
+            document.getElementById('successBanner').classList.add('hidden');
+            document.getElementById('scanStatus').textContent = 'Point your camera at a book barcode (ISBN)';
+            document.getElementById('scanStatus').className = 'scan-status';
+            document.getElementById('manualIsbn').value = '';
+            startScanner();
+        }
+
+        // ── Handle form submit via fetch to stay on page ──
+        document.getElementById('addForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const fd = new FormData(this);
+            fetch('/add', { method: 'POST', body: fd })
+                .then(r => {
+                    if (r.ok) {
+                        const title = fd.get('title');
+                        const boxId = fd.get('box_id');
+                        const sel = document.getElementById('cf_box');
+                        const boxLabel = sel.options[sel.selectedIndex].textContent.split('(')[0].trim();
+                        showSuccessAndReset(title, boxId, boxLabel);
+                    } else {
+                        alert('Error adding book. Try again.');
+                    }
+                })
+                .catch(() => alert('Network error.'));
+        });
+
+        function showSuccessAndReset(title, boxId, boxLabel) {
+            // Show banner first
+            const banner = document.getElementById('successBanner');
+            banner.innerHTML = `✅ <strong>${esc(title)}</strong> added to <a href="/box/${boxId}">${esc(boxLabel)}</a>.`;
+            banner.classList.remove('hidden');
+            // Reset scanner UI but keep banner visible
+            lastScanned = '';
+            document.getElementById('resultPhase').classList.add('hidden');
+            document.getElementById('loadingPhase').classList.add('hidden');
+            document.getElementById('scanPhase').classList.remove('hidden');
+            document.getElementById('scanStatus').textContent = 'Point your camera at a book barcode (ISBN)';
+            document.getElementById('scanStatus').className = 'scan-status';
+            document.getElementById('manualIsbn').value = '';
+            startScanner();
+        }
+
+        // Boot
+        startScanner();
+    </script>
+</body>
+</html>
