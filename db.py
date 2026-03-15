@@ -6,8 +6,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "bookbox.db")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS boxes (
     id          TEXT PRIMARY KEY,   -- e.g. 'rox-001'
-    label       TEXT NOT NULL,      -- friendly name
-    max_capacity INTEGER NOT NULL DEFAULT 40
+    label       TEXT NOT NULL       -- friendly name
 );
 
 CREATE TABLE IF NOT EXISTS books (
@@ -39,8 +38,8 @@ def init_db():
     # Seed default boxes if empty
     count = conn.execute("SELECT COUNT(*) FROM boxes").fetchone()[0]
     if count == 0:
-        boxes = [(f"rox-{i:03d}", f"ROX 530m Box #{i}", 40) for i in range(1, 11)]
-        conn.executemany("INSERT INTO boxes (id, label, max_capacity) VALUES (?, ?, ?)", boxes)
+        boxes = [(f"rox-{i:03d}", f"ROX 530m Box #{i}") for i in range(1, 11)]
+        conn.executemany("INSERT INTO boxes (id, label) VALUES (?, ?)", boxes)
         conn.commit()
     conn.close()
 

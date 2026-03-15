@@ -24,7 +24,7 @@
     {% for box in boxes %}
     <a class="box-card" href="/box/{{ box.id }}">
         <div class="box-label">{{ box.label }}</div>
-        <div class="box-meta">{{ box.book_count }} / {{ box.max_capacity }} books</div>
+        <div class="box-meta">{{ box.book_count }} book{{ 's' if box.book_count != 1 else '' }}</div>
     </a>
     {% endfor %}
     <a class="btn" href="/add">+ Add a Book</a>

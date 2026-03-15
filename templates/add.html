@@ -44,7 +44,7 @@
     <div class="method-tabs">
         <a class="method-tab active" href="/add{% if from_box %}?box_id={{ from_box }}{% endif %}">✏️ Manual</a>
         <a class="method-tab" href="/scan{% if from_box %}?box_id={{ from_box }}{% endif %}">📷 Scan</a>
-        <span class="method-tab disabled">📦 Batch</span>
+        <a class="method-tab" href="/batch{% if from_box %}?box_id={{ from_box }}{% endif %}">📦 Batch</a>
     </div>
 
     {% if success %}
@@ -76,9 +76,8 @@
         <select id="box_id" name="box_id">
             {% for box in boxes %}
             <option value="{{ box.id }}" {% if box.id == suggested_box %}selected{% endif %}>
-                {{ box.label }} ({{ box.book_count }}/{{ box.max_capacity }})
+                {{ box.label }} ({{ box.book_count }} book{{ 's' if box.book_count != 1 else '' }})
                 {%- if box.id == suggested_box %} ⭐ suggested{% endif %}
-                {%- if box.book_count >= box.max_capacity %} — FULL{% endif %}
             </option>
             {% endfor %}
         </select>

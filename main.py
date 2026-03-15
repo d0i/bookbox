@@ -105,22 +105,10 @@ def add_book(request: Request, title: str = Form(...), author: str = Form(...),
              genre: str = Form(""), box_id: str = Form(...), from_box: str = Form("")):
     conn = get_db()
     fb = _from_box_ctx(conn, from_box)
-    # Validate box exists and has capacity
     box = conn.execute("SELECT * FROM boxes WHERE id = ?", (box_id,)).fetchone()
     if not box:
         conn.close()
         return HTMLResponse("Box not found", status_code=404)
-    count = conn.execute("SELECT COUNT(*) FROM books WHERE box_id = ?", (box_id,)).fetchone()[0]
-    if count >= box["max_capacity"]:
-        ctx = _add_ctx(conn, author, genre)
-        if fb["from_box"]:
-            ctx["suggested_box"] = fb["from_box"]
-            ctx["suggestion_reason"] = ""
-        conn.close()
-        return templates.TemplateResponse("add.html", {
-            "request": request, "form": {"title": title, "author": author, "genre": genre},
-            "success": None, "error": f"{box['label']} is full!", **fb, **ctx
-        })
     conn.execute("INSERT INTO books (title, author, genre, box_id) VALUES (?, ?, ?, ?)",
                  (title.strip(), author.strip(), genre.strip(), box_id))
     conn.commit()
@@ -166,6 +154,54 @@ def scan_page(request: Request, box_id: str = ""):
         ctx["suggestion_reason"] = ""
     conn.close()
     return templates.TemplateResponse("scan.html", {"request": request, **fb, **ctx})
+
+
+# ── Batch page + API ──────────────────────────────
+
+@app.get("/batch", response_class=HTMLResponse)
+def batch_page(request: Request, box_id: str = ""):
+    conn = get_db()
+    fb = _from_box_ctx(conn, box_id)
+    ctx = _add_ctx(conn)
+    if fb["from_box"]:
+        ctx["suggested_box"] = fb["from_box"]
+        ctx["suggestion_reason"] = ""
+    conn.close()
+    return templates.TemplateResponse("batch.html", {"request": request, **fb, **ctx})
+
+
+from pydantic import BaseModel
+
+class BatchBook(BaseModel):
+    title: str
+    author: str
+    genre: str = ""
+
+class BatchAddRequest(BaseModel):
+    box_id: str
+    books: list[BatchBook]
+
+
+@app.post("/api/batch-add")
+def api_batch_add(req: BatchAddRequest):
+    conn = get_db()
+    box = conn.execute("SELECT * FROM boxes WHERE id = ?", (req.box_id,)).fetchone()
+    if not box:
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Box not found"}, status_code=404)
+    added = 0
+    for book in req.books:
+        t, a = book.title.strip(), book.author.strip()
+        if not t or not a:
+            continue
+        conn.execute(
+            "INSERT INTO books (title, author, genre, box_id) VALUES (?, ?, ?, ?)",
+            (t, a, book.genre.strip(), req.box_id),
+        )
+        added += 1
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True, "count": added})
 
 
 if __name__ == "__main__":

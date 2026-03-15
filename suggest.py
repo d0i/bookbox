@@ -3,10 +3,10 @@
 Scoring per box:
   +3  for each book by the same author in that box
   +1  for each book in the same genre in that box
-  -∞  if the box is full (>= max_capacity)
 
-Tiebreaker: prefer boxes with fewer books (more room).
+Tiebreaker: prefer boxes with fewer books.
 Returns (box_id, reason_string) or (None, "") if nothing to suggest.
+
 """
 import sqlite3
 
@@ -19,7 +19,7 @@ def suggest_box(conn: sqlite3.Connection, author: str = "", genre: str = "") -> 
 
     # Get all boxes with their counts
     boxes = conn.execute(
-        "SELECT b.id, b.label, b.max_capacity, COUNT(bk.id) AS book_count "
+        "SELECT b.id, b.label, COUNT(bk.id) AS book_count "
         "FROM boxes b LEFT JOIN books bk ON bk.box_id = b.id "
         "GROUP BY b.id"
     ).fetchall()
@@ -27,9 +27,6 @@ def suggest_box(conn: sqlite3.Connection, author: str = "", genre: str = "") -> 
     scores: list[tuple[float, int, str, str, list[str]]] = []  # (score, -count, box_id, label, reasons)
 
     for box in boxes:
-        if box["book_count"] >= box["max_capacity"]:
-            continue  # skip full boxes
-
         score = 0.0
         reasons = []
 
@@ -52,15 +49,14 @@ def suggest_box(conn: sqlite3.Connection, author: str = "", genre: str = "") -> 
                 reasons.append(f"{genre_count} book{'s' if genre_count > 1 else ''} in same genre")
 
         if score > 0:
-            # Tiebreaker: prefer emptier boxes (negative count = more room first)
             scores.append((score, -box["book_count"], box["id"], box["label"], reasons))
 
     if not scores:
-        # No match — suggest the emptiest non-full box
-        empties = [(box["book_count"], box["id"], box["label"]) for box in boxes if box["book_count"] < box["max_capacity"]]
-        if empties:
-            empties.sort()
-            box_id, label = empties[0][1], empties[0][2]
+        # No match — suggest the box with fewest books
+        all_boxes = [(box["book_count"], box["id"], box["label"]) for box in boxes]
+        if all_boxes:
+            all_boxes.sort()
+            box_id, label = all_boxes[0][1], all_boxes[0][2]
             return box_id, f"{label} has the most space"
         return None, ""
 
