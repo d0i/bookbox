@@ -59,6 +59,22 @@
         .modal .save-btn { background: #1976d2; color: #fff; border: none; font-weight: 600; }
         .modal .save-btn:disabled { opacity: 0.4; }
         .modal .error-msg { color: #f44336; font-size: 0.85rem; margin-top: 8px; display: none; }
+
+        /* Find modal extras */
+        .find-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #ddd;
+                        border-top-color: #1976d2; border-radius: 50%; animation: spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .find-result { display: flex; gap: 10px; background: #f8f8f8; border-radius: 8px; padding: 12px;
+                       margin-bottom: 8px; text-decoration: none; color: inherit; align-items: center; }
+        .find-result:active { background: #e3f2fd; }
+        .find-result img { width: 40px; height: 56px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+        .find-result .fr-placeholder { width: 40px; height: 56px; border-radius: 4px; background: #e0e0e0;
+                                       display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
+                                       color: #bbb; flex-shrink: 0; }
+        .find-result .fr-info { flex: 1; min-width: 0; }
+        .find-result .fr-title { font-weight: 600; font-size: 0.95rem; }
+        .find-result .fr-meta { font-size: 0.8rem; color: #666; margin-top: 2px; }
+        .find-result .fr-box { font-size: 0.75rem; color: #1976d2; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -79,12 +95,37 @@
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
         <a class="btn" href="/add">+ Add a Book</a>
         <button class="btn btn-outline" onclick="document.getElementById('newBoxModal').classList.add('show')">+ New Box</button>
+        <button class="btn btn-outline" onclick="openFindModal()">🔍 Find by Barcode</button>
         <a class="btn btn-outline" href="/api/export" download>⬇ Export All</a>
     </div>
 
     {% if archived_count > 0 %}
     <a class="archive-link" href="/archived">🗃️ {{ archived_count }} archived box{{ 'es' if archived_count != 1 else '' }}</a>
     {% endif %}
+
+    <!-- Find by Barcode Modal -->
+    <div class="modal-overlay" id="findModal">
+        <div class="modal" style="max-width:440px;">
+            <h2>🔍 Find Book by Barcode</h2>
+            <div id="findScannerWrap" style="background:#000; border-radius:10px; overflow:hidden; margin-bottom:12px;">
+                <div id="findReader"></div>
+            </div>
+            <div id="findScanStatus" style="text-align:center; font-size:0.9rem; color:#666; margin-bottom:8px;">Point camera at ISBN barcode</div>
+            <div style="display:flex; gap:8px; margin-bottom:12px;">
+                <input type="text" id="findIsbnInput" placeholder="or enter ISBN" style="flex:1; padding:10px 12px; border:1.5px solid #ddd; border-radius:8px; font-size:1rem;" inputmode="numeric">
+                <button onclick="findByIsbn()" style="padding:10px 16px; background:#1976d2; color:#fff; border:none; border-radius:8px; font-size:0.9rem; cursor:pointer; white-space:nowrap;">Search</button>
+            </div>
+            <div id="findLoading" style="display:none; text-align:center; padding:12px;">
+                <div class="find-spinner"></div>
+                <p style="margin-top:8px; color:#666; font-size:0.9rem;">Searching…</p>
+            </div>
+            <div id="findResults" style="display:none;"></div>
+            <div id="findNotFound" style="display:none; background:#fff3e0; border-radius:8px; padding:14px; text-align:center; color:#e65100; font-size:0.9rem;"></div>
+            <div class="modal-actions">
+                <button class="cancel-btn" onclick="closeFindModal()">Close</button>
+            </div>
+        </div>
+    </div>
 
     <!-- New Box Modal -->
     <div class="modal-overlay" id="newBoxModal">
@@ -102,6 +143,7 @@
         </div>
     </div>
 
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script>
         const input = document.getElementById('searchInput');
         const results = document.getElementById('searchResults');
@@ -119,7 +161,7 @@
                             results.innerHTML = '<div class="sr-empty">No results</div>';
                         } else {
                             results.innerHTML = data.results.map(r =>
-                                `<a class="sr-item" href="/box/${r.box_id}">`
+                                `<a class="sr-item" href="/book/${r.id}">`
                                 + `<div class="sr-title">${esc(r.title)}</div>`
                                 + `<div class="sr-meta">${esc(r.author)}${r.genre ? ' \u00b7 ' + esc(r.genre) : ''}</div>`
                                 + `<div class="sr-box">📦 ${esc(r.box_label)}</div>`
@@ -150,6 +192,133 @@
         document.getElementById('newBoxModal').addEventListener('click', e => {
             if (e.target === e.currentTarget) closeNewBoxModal();
         });
+
+        // ── Find by barcode ─────────────────────────
+        let findScanner = null;
+        let findScannerRunning = false;
+        let findLastScanned = '';
+
+        function openFindModal() {
+            document.getElementById('findModal').classList.add('show');
+            document.getElementById('findResults').style.display = 'none';
+            document.getElementById('findNotFound').style.display = 'none';
+            document.getElementById('findLoading').style.display = 'none';
+            document.getElementById('findScanStatus').textContent = 'Point camera at ISBN barcode';
+            document.getElementById('findScanStatus').style.color = '#666';
+            document.getElementById('findIsbnInput').value = '';
+            findLastScanned = '';
+            startFindScanner();
+        }
+
+        function closeFindModal() {
+            document.getElementById('findModal').classList.remove('show');
+            stopFindScanner();
+        }
+
+        document.getElementById('findModal').addEventListener('click', e => {
+            if (e.target === e.currentTarget) closeFindModal();
+        });
+
+        function startFindScanner() {
+            if (!window.Html5Qrcode) return; // library not loaded yet
+            findScanner = new Html5Qrcode('findReader');
+            findScanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 260, height: 100 }, formatsToSupport: [
+                    Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+                    Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+                ]},
+                onFindScan,
+                () => {}
+            ).then(() => { findScannerRunning = true; })
+            .catch(() => {
+                document.getElementById('findScanStatus').textContent = 'Camera not available. Enter ISBN manually.';
+                document.getElementById('findScanStatus').style.color = '#f44336';
+            });
+        }
+
+        function stopFindScanner() {
+            if (findScanner && findScannerRunning) {
+                try { findScanner.stop().catch(() => {}); } catch(e) {}
+                findScannerRunning = false;
+            }
+        }
+
+        function onFindScan(code) {
+            if (code === findLastScanned) return;
+            findLastScanned = code;
+            const clean = code.replace(/[^0-9X]/gi, '');
+            if (clean.length !== 10 && clean.length !== 13) return;
+            document.getElementById('findScanStatus').textContent = '✅ Scanned: ' + clean;
+            document.getElementById('findScanStatus').style.color = '#4caf50';
+            document.getElementById('findIsbnInput').value = clean;
+            stopFindScanner();
+            doFindSearch(clean);
+        }
+
+        function findByIsbn() {
+            const raw = document.getElementById('findIsbnInput').value.trim();
+            const clean = raw.replace(/[^0-9X]/gi, '');
+            if (clean.length !== 10 && clean.length !== 13) {
+                alert('Enter a valid 10- or 13-digit ISBN.');
+                return;
+            }
+            stopFindScanner();
+            doFindSearch(clean);
+        }
+
+        document.getElementById('findIsbnInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); findByIsbn(); }
+        });
+
+        function doFindSearch(isbn) {
+            document.getElementById('findResults').style.display = 'none';
+            document.getElementById('findNotFound').style.display = 'none';
+            document.getElementById('findLoading').style.display = 'block';
+
+            fetch('/api/find-by-isbn/' + isbn)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('findLoading').style.display = 'none';
+                    if (data.found && data.found.length > 0) {
+                        showFindResults(data.found);
+                    } else {
+                        // Not in library — try online lookup for info
+                        document.getElementById('findNotFound').innerHTML =
+                            'No book with ISBN <strong>' + esc(isbn) + '</strong> found in your library.<br>'
+                            + '<a href="/scan" style="color:#1976d2;font-weight:600;">Scan to add it →</a>';
+                        document.getElementById('findNotFound').style.display = 'block';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('findLoading').style.display = 'none';
+                    document.getElementById('findNotFound').textContent = 'Network error.';
+                    document.getElementById('findNotFound').style.display = 'block';
+                });
+        }
+
+        function showFindResults(books) {
+            const container = document.getElementById('findResults');
+            container.innerHTML = '<div style="font-size:0.85rem;color:#666;margin-bottom:8px;">' +
+                books.length + ' book' + (books.length !== 1 ? 's' : '') + ' found:</div>';
+            books.forEach(b => {
+                const thumb = b.thumbnail_url
+                    ? '<img src="' + esc(b.thumbnail_url) + '" alt="">'
+                    : '<div class="fr-placeholder">📖</div>';
+                const a = document.createElement('a');
+                a.href = '/book/' + b.id;
+                a.className = 'find-result';
+                a.innerHTML = thumb +
+                    '<div class="fr-info">' +
+                    '<div class="fr-title">' + esc(b.title) + '</div>' +
+                    '<div class="fr-meta">' + esc(b.author) +
+                        (b.published_year ? ' · ' + b.published_year : '') + '</div>' +
+                    '<div class="fr-box">📦 ' + esc(b.box_label) + '</div>' +
+                    '</div>';
+                container.appendChild(a);
+            });
+            container.style.display = 'block';
+        }
 
         function createBox() {
             const idEl = document.getElementById('newBoxId');

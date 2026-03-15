@@ -153,29 +153,47 @@ def book_view(request: Request, book_id: int):
     if not book:
         conn.close()
         return HTMLResponse("<h1>Book not found</h1>", status_code=404)
+    # Active boxes for move dropdown
+    boxes = conn.execute(
+        "SELECT id, label FROM boxes WHERE archived = 0 ORDER BY id"
+    ).fetchall()
     conn.close()
     return templates.TemplateResponse("book.html", {
-        "request": request, "book": book,
+        "request": request, "book": book, "boxes": boxes,
     })
 
 
 # ── Book / Box Memo APIs ─────────────────────────
 
-class MemoRequest(BaseModel):
-    memo: str
+class UpdateBookRequest(BaseModel):
+    memo: str | None = None
+    box_id: str | None = None
 
 
 @app.patch("/api/book/{book_id}")
-def update_book(book_id: int, req: MemoRequest):
+def update_book(book_id: int, req: UpdateBookRequest):
     conn = get_db()
     book = conn.execute("SELECT id FROM books WHERE id = ?", (book_id,)).fetchone()
     if not book:
         conn.close()
         return JSONResponse({"ok": False, "error": "Book not found"}, status_code=404)
-    conn.execute("UPDATE books SET memo = ? WHERE id = ?", (req.memo, book_id))
+    if req.memo is not None:
+        conn.execute("UPDATE books SET memo = ? WHERE id = ?", (req.memo, book_id))
+    if req.box_id is not None:
+        target = conn.execute(
+            "SELECT * FROM boxes WHERE id = ? AND archived = 0", (req.box_id,)
+        ).fetchone()
+        if not target:
+            conn.close()
+            return JSONResponse({"ok": False, "error": "Target box not found or archived"}, status_code=400)
+        conn.execute("UPDATE books SET box_id = ? WHERE id = ?", (req.box_id, book_id))
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True})
+
+
+class MemoRequest(BaseModel):
+    memo: str
 
 
 @app.patch("/api/box/{box_id}/memo")
@@ -276,15 +294,16 @@ def api_search(q: str = ""):
     conn = get_db()
     like = f"%{q}%"
     rows = conn.execute(
-        "SELECT bk.id, bk.title, bk.author, bk.genre, bk.box_id, b.label AS box_label "
+        "SELECT bk.id, bk.title, bk.author, bk.genre, bk.isbn, bk.box_id, b.label AS box_label "
         "FROM books bk JOIN boxes b ON b.id = bk.box_id "
-        "WHERE b.archived = 0 AND (bk.title LIKE ? OR bk.author LIKE ? OR bk.genre LIKE ?) "
+        "WHERE b.archived = 0 AND (bk.title LIKE ? OR bk.author LIKE ? OR bk.genre LIKE ? OR bk.isbn LIKE ?) "
         "ORDER BY bk.title LIMIT 30",
-        (like, like, like),
+        (like, like, like, like),
     ).fetchall()
     conn.close()
     results = [{"id": r["id"], "title": r["title"], "author": r["author"],
-                "genre": r["genre"], "box_id": r["box_id"], "box_label": r["box_label"]}
+                "genre": r["genre"], "isbn": r["isbn"], "box_id": r["box_id"],
+                "box_label": r["box_label"]}
                for r in rows]
     return JSONResponse({"results": results})
 
@@ -305,15 +324,29 @@ def add_form(request: Request, box_id: str = ""):
 
 @app.post("/add", response_class=HTMLResponse)
 def add_book(request: Request, title: str = Form(...), author: str = Form(...),
-             genre: str = Form(""), box_id: str = Form(...), from_box: str = Form("")):
+             genre: str = Form(""), box_id: str = Form(...), from_box: str = Form(""),
+             isbn: str = Form(""), publisher: str = Form(""),
+             published_year: str = Form(""), page_count: str = Form(""),
+             language: str = Form(""), thumbnail_url: str = Form("")):
     conn = get_db()
     fb = _from_box_ctx(conn, from_box)
     box = conn.execute("SELECT * FROM boxes WHERE id = ?", (box_id,)).fetchone()
     if not box:
         conn.close()
         return HTMLResponse("Box not found", status_code=404)
-    conn.execute("INSERT INTO books (title, author, genre, box_id) VALUES (?, ?, ?, ?)",
-                 (title.strip(), author.strip(), genre.strip(), box_id))
+    pc = None
+    if page_count.strip():
+        try:
+            pc = int(page_count.strip())
+        except ValueError:
+            pc = None
+    conn.execute(
+        "INSERT INTO books (title, author, genre, box_id, isbn, publisher, published_year, page_count, language, thumbnail_url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (title.strip(), author.strip(), genre.strip(), box_id,
+         isbn.strip(), publisher.strip(), published_year.strip(), pc,
+         language.strip(), thumbnail_url.strip()),
+    )
     conn.commit()
     ctx = _add_ctx(conn)
     if fb["from_box"]:
@@ -343,6 +376,31 @@ def api_suggest(author: str = "", genre: str = ""):
 def api_isbn(isbn: str):
     candidates = lookup_isbn(isbn)
     return JSONResponse({"isbn": isbn, "candidates": candidates})
+
+
+# ── Find book in library by ISBN ─────────────────
+
+@app.get("/api/find-by-isbn/{isbn}")
+def find_by_isbn(isbn: str):
+    """Search for books already in the database matching this ISBN."""
+    isbn = isbn.strip().replace("-", "").replace(" ", "")
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT bk.id, bk.title, bk.author, bk.genre, bk.isbn, bk.box_id, "
+        "bk.publisher, bk.published_year, bk.thumbnail_url, b.label AS box_label "
+        "FROM books bk JOIN boxes b ON b.id = bk.box_id "
+        "WHERE bk.isbn = ? ORDER BY bk.title",
+        (isbn,),
+    ).fetchall()
+    conn.close()
+    results = [
+        {"id": r["id"], "title": r["title"], "author": r["author"],
+         "genre": r["genre"], "isbn": r["isbn"], "box_id": r["box_id"],
+         "box_label": r["box_label"], "publisher": r["publisher"],
+         "published_year": r["published_year"], "thumbnail_url": r["thumbnail_url"]}
+        for r in rows
+    ]
+    return JSONResponse({"isbn": isbn, "found": results})
 
 
 # ── Scan page ────────────────────────────────────
@@ -377,6 +435,12 @@ class BatchBook(BaseModel):
     title: str
     author: str
     genre: str = ""
+    isbn: str = ""
+    publisher: str = ""
+    published_year: str = ""
+    page_count: int | None = None
+    language: str = ""
+    thumbnail_url: str = ""
 
 class BatchAddRequest(BaseModel):
     box_id: str
@@ -396,8 +460,11 @@ def api_batch_add(req: BatchAddRequest):
         if not t or not a:
             continue
         conn.execute(
-            "INSERT INTO books (title, author, genre, box_id) VALUES (?, ?, ?, ?)",
-            (t, a, book.genre.strip(), req.box_id),
+            "INSERT INTO books (title, author, genre, box_id, isbn, publisher, published_year, page_count, language, thumbnail_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (t, a, book.genre.strip(), req.box_id,
+             book.isbn.strip(), book.publisher.strip(), book.published_year.strip(),
+             book.page_count, book.language.strip(), book.thumbnail_url.strip()),
         )
         added += 1
     conn.commit()
@@ -425,6 +492,12 @@ def _box_to_dict(conn, box_id: str) -> dict | None:
                 "author": bk["author"],
                 "genre": bk["genre"],
                 "memo": bk["memo"],
+                "isbn": bk["isbn"],
+                "publisher": bk["publisher"],
+                "published_year": bk["published_year"],
+                "page_count": bk["page_count"],
+                "language": bk["language"],
+                "thumbnail_url": bk["thumbnail_url"],
                 "created_at": bk["created_at"],
             }
             for bk in books
@@ -494,16 +567,29 @@ async def import_box(box_id: str, file: UploadFile = File(...)):
             continue
         genre = str(bk.get("genre", "")).strip()
         memo = str(bk.get("memo", "")).strip()
+        isbn = str(bk.get("isbn", "")).strip()
+        publisher = str(bk.get("publisher", "")).strip()
+        published_year = str(bk.get("published_year", "")).strip()
+        page_count = bk.get("page_count")
+        if page_count is not None:
+            try:
+                page_count = int(page_count)
+            except (ValueError, TypeError):
+                page_count = None
+        language = str(bk.get("language", "")).strip()
+        thumbnail_url = str(bk.get("thumbnail_url", "")).strip()
         created = bk.get("created_at", None)
+        cols = "title, author, genre, memo, box_id, isbn, publisher, published_year, page_count, language, thumbnail_url"
+        vals = (title, author, genre, memo, box_id, isbn, publisher, published_year, page_count, language, thumbnail_url)
         if created:
             conn.execute(
-                "INSERT INTO books (title, author, genre, memo, box_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (title, author, genre, memo, box_id, created),
+                f"INSERT INTO books ({cols}, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                vals + (created,),
             )
         else:
             conn.execute(
-                "INSERT INTO books (title, author, genre, memo, box_id) VALUES (?, ?, ?, ?, ?)",
-                (title, author, genre, memo, box_id),
+                f"INSERT INTO books ({cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                vals,
             )
         added += 1
     # Update box memo/label if present in data

@@ -5,13 +5,22 @@ Sources (queried in parallel):
   2. Google Books — good JP + EN coverage
   3. Open Library — EN fallback
 
-Returns a list of candidate dicts: {title, author, genre, source}
+Returns a list of candidate dicts with bibliography fields.
 """
+import re
 import httpx
 import asyncio
 from typing import Optional
 
 TIMEOUT = 6.0  # seconds per source
+
+
+def _extract_year(date_str: str) -> str:
+    """Extract 4-digit year from various date formats."""
+    if not date_str:
+        return ""
+    m = re.search(r"(\d{4})", str(date_str))
+    return m.group(1) if m else ""
 
 
 async def _openbd(isbn: str, client: httpx.AsyncClient) -> Optional[dict]:
@@ -21,21 +30,69 @@ async def _openbd(isbn: str, client: httpx.AsyncClient) -> Optional[dict]:
         data = r.json()
         if not data or not data[0]:
             return None
-        summary = data[0].get("summary", {})
+        item = data[0]
+        summary = item.get("summary", {})
         title = summary.get("title", "").strip()
         author = summary.get("author", "").strip()
         if not title:
             return None
-        # openBD doesn't have a clean genre field; try to extract from C-code
+
+        onix = item.get("onix", {})
+        desc = onix.get("DescriptiveDetail", {})
+        pub_detail = onix.get("PublishingDetail", {})
+
+        # Genre from subjects
         genre = ""
-        onix = data[0].get("onix", {})
-        subjects = onix.get("DescriptiveDetail", {}).get("Subject", [])
+        subjects = desc.get("Subject", [])
         for s in subjects:
             text = s.get("SubjectHeadingText", "")
             if text:
                 genre = text
                 break
-        return {"title": title, "author": author, "genre": genre, "source": "openBD"}
+
+        # Publisher
+        publisher = summary.get("publisher", "").strip()
+
+        # Published year
+        published_year = ""
+        pub_dates = pub_detail.get("PublishingDate", [])
+        for pd in pub_dates:
+            y = _extract_year(pd.get("Date", ""))
+            if y:
+                published_year = y
+                break
+
+        # Page count — look for ExtentType "02" (pages)
+        page_count = None
+        extents = desc.get("Extent", [])
+        for ext in extents:
+            # ExtentType 02 = number of pages of content
+            if ext.get("ExtentType") in ("02", "00", 2, 0):
+                try:
+                    page_count = int(ext.get("ExtentValue", 0))
+                except (ValueError, TypeError):
+                    pass
+                if page_count:
+                    break
+
+        # Language
+        language = ""
+        langs = desc.get("Language", [])
+        if langs:
+            language = langs[0].get("LanguageCode", "").strip()
+
+        # Thumbnail
+        thumbnail_url = summary.get("cover", "").strip()
+
+        return {
+            "title": title, "author": author, "genre": genre, "source": "openBD",
+            "isbn": summary.get("isbn", isbn).strip(),
+            "publisher": publisher,
+            "published_year": published_year,
+            "page_count": page_count,
+            "language": language,
+            "thumbnail_url": thumbnail_url,
+        }
     except Exception:
         return None
 
@@ -63,7 +120,33 @@ async def _google_books(isbn: str, client: httpx.AsyncClient) -> Optional[dict]:
         genre = categories[0] if categories else ""
         if not title:
             return None
-        return {"title": title, "author": author, "genre": genre, "source": "Google Books"}
+
+        # ISBN — prefer ISBN_13
+        found_isbn = isbn
+        for ident in info.get("industryIdentifiers", []):
+            if ident.get("type") == "ISBN_13":
+                found_isbn = ident.get("identifier", isbn)
+                break
+            elif ident.get("type") == "ISBN_10":
+                found_isbn = ident.get("identifier", isbn)
+
+        # Thumbnail
+        thumbnail_url = ""
+        img_links = info.get("imageLinks", {})
+        thumbnail_url = img_links.get("thumbnail", img_links.get("smallThumbnail", ""))
+        # Upgrade to https
+        if thumbnail_url.startswith("http://"):
+            thumbnail_url = "https://" + thumbnail_url[7:]
+
+        return {
+            "title": title, "author": author, "genre": genre, "source": "Google Books",
+            "isbn": found_isbn,
+            "publisher": info.get("publisher", "").strip(),
+            "published_year": _extract_year(info.get("publishedDate", "")),
+            "page_count": info.get("pageCount"),
+            "language": info.get("language", "").strip(),
+            "thumbnail_url": thumbnail_url,
+        }
     except Exception:
         return None
 
@@ -82,7 +165,7 @@ async def _openlibrary(isbn: str, client: httpx.AsyncClient) -> Optional[dict]:
         title = data.get("title", "").strip()
         if not title:
             return None
-        # Authors require a second lookup; grab from authors key
+        # Authors require a second lookup
         author = ""
         author_keys = data.get("authors", [])
         if author_keys:
@@ -93,7 +176,52 @@ async def _openlibrary(isbn: str, client: httpx.AsyncClient) -> Optional[dict]:
                     author = ar.json().get("name", "")
         subjects = data.get("subjects", [])
         genre = subjects[0] if subjects else ""
-        return {"title": title, "author": author, "genre": genre, "source": "Open Library"}
+
+        # ISBN
+        found_isbn = isbn
+        isbn_13 = data.get("isbn_13", [])
+        isbn_10 = data.get("isbn_10", [])
+        if isbn_13:
+            found_isbn = isbn_13[0]
+        elif isbn_10:
+            found_isbn = isbn_10[0]
+
+        # Publisher
+        publishers = data.get("publishers", [])
+        publisher = publishers[0] if publishers else ""
+
+        # Published year
+        published_year = _extract_year(data.get("publish_date", ""))
+
+        # Page count
+        page_count = data.get("number_of_pages")
+
+        # Language — format is [{"key": "/languages/eng"}]
+        language = ""
+        langs = data.get("languages", [])
+        if langs:
+            lang_key = langs[0].get("key", "")
+            lang_code = lang_key.rsplit("/", 1)[-1] if lang_key else ""
+            # Map 3-letter to 2-letter for common ones
+            lang_map = {"eng": "en", "jpn": "ja", "fre": "fr", "ger": "de", "spa": "es",
+                        "ita": "it", "por": "pt", "chi": "zh", "kor": "ko", "rus": "ru"}
+            language = lang_map.get(lang_code, lang_code)
+
+        # Thumbnail from covers
+        thumbnail_url = ""
+        covers = data.get("covers", [])
+        if covers:
+            thumbnail_url = f"https://covers.openlibrary.org/b/id/{covers[0]}-M.jpg"
+
+        return {
+            "title": title, "author": author, "genre": genre, "source": "Open Library",
+            "isbn": found_isbn,
+            "publisher": publisher,
+            "published_year": published_year,
+            "page_count": page_count,
+            "language": language,
+            "thumbnail_url": thumbnail_url,
+        }
     except Exception:
         return None
 
@@ -109,18 +237,20 @@ async def _lookup_async(isbn: str) -> list[dict]:
     # Collect all valid results
     all_results = [r for r in results if isinstance(r, dict) and r.get("title")]
 
-    # Find the best genre from any source to use as fallback
-    best_genre = ""
-    for r in all_results:
-        if r.get("genre"):
-            best_genre = r["genre"]
-            break
-
-    # Back-fill genre into candidates that lack one
-    if best_genre:
+    # Find the best value for each field from any source to use as fallback
+    fill_fields = ["genre", "publisher", "published_year", "page_count", "language", "thumbnail_url"]
+    best = {}
+    for f in fill_fields:
         for r in all_results:
-            if not r.get("genre"):
-                r["genre"] = best_genre
+            if r.get(f):
+                best[f] = r[f]
+                break
+
+    # Back-fill missing fields from other sources
+    for r in all_results:
+        for f in fill_fields:
+            if not r.get(f) and f in best:
+                r[f] = best[f]
 
     # Deduplicate by normalized title
     candidates = []
@@ -145,5 +275,7 @@ if __name__ == "__main__":
     results = lookup_isbn(code)
     for r in results:
         print(f"[{r['source']}] {r['title']} / {r['author']} / {r['genre']}")
+        print(f"  ISBN: {r.get('isbn')} | Publisher: {r.get('publisher')} | Year: {r.get('published_year')}")
+        print(f"  Pages: {r.get('page_count')} | Lang: {r.get('language')} | Cover: {r.get('thumbnail_url', '')[:60]}")
     if not results:
         print("No results found.")

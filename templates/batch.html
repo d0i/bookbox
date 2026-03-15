@@ -260,7 +260,7 @@
         // ── Add ISBN to queue ─────────────────
         function addIsbn(isbn) {
             scannedIsbns.add(isbn);
-            const entry = { isbn, title: '', author: '', genre: '', status: 'pending' };
+            const entry = { isbn, title: '', author: '', genre: '', publisher: '', published_year: '', page_count: null, language: '', thumbnail_url: '', status: 'pending' };
             queue.push(entry);
             beepGood(); flashBar('good');
             setStatus('✅ Scanned: ' + isbn, 'ok');
@@ -277,6 +277,12 @@
                         entry.title = best.title;
                         entry.author = best.author;
                         entry.genre = best.genre || '';
+                        entry.isbn = best.isbn || entry.isbn;
+                        entry.publisher = best.publisher || '';
+                        entry.published_year = best.published_year || '';
+                        entry.page_count = best.page_count || null;
+                        entry.language = best.language || '';
+                        entry.thumbnail_url = best.thumbnail_url || '';
                         entry.status = 'ok';
                     } else {
                         entry.title = 'Unknown (ISBN: ' + isbn + ')';
@@ -355,6 +361,12 @@
                 const div = document.createElement('div');
                 div.className = 'review-item';
                 div.setAttribute('data-idx', i);
+                div.dataset.isbn = item.isbn || '';
+                div.dataset.publisher = item.publisher || '';
+                div.dataset.publishedYear = item.published_year || '';
+                div.dataset.pageCount = item.page_count || '';
+                div.dataset.language = item.language || '';
+                div.dataset.thumbnailUrl = item.thumbnail_url || '';
                 div.innerHTML = `
                     <button class="remove-review" onclick="removeReviewItem(${i})">remove</button>
                     <span class="isbn-tag">ISBN: ${esc(item.isbn)}</span>
@@ -391,10 +403,17 @@
             const items = document.querySelectorAll('#reviewList .review-item');
             const books = [];
             items.forEach((el, i) => {
+                const pc = el.dataset.pageCount ? parseInt(el.dataset.pageCount) : null;
                 books.push({
                     title: el.querySelector('[data-field=title]').value.trim(),
                     author: el.querySelector('[data-field=author]').value.trim(),
                     genre: el.querySelector('[data-field=genre]').value.trim(),
+                    isbn: el.dataset.isbn || '',
+                    publisher: el.dataset.publisher || '',
+                    published_year: el.dataset.publishedYear || '',
+                    page_count: pc,
+                    language: el.dataset.language || '',
+                    thumbnail_url: el.dataset.thumbnailUrl || '',
                 });
             });
 

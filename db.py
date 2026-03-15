@@ -12,13 +12,19 @@ CREATE TABLE IF NOT EXISTS boxes (
 );
 
 CREATE TABLE IF NOT EXISTS books (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    title       TEXT NOT NULL,
-    author      TEXT NOT NULL,
-    genre       TEXT NOT NULL DEFAULT '',
-    box_id      TEXT NOT NULL REFERENCES boxes(id),
-    memo        TEXT NOT NULL DEFAULT '',
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    title           TEXT NOT NULL,
+    author          TEXT NOT NULL,
+    genre           TEXT NOT NULL DEFAULT '',
+    box_id          TEXT NOT NULL REFERENCES boxes(id),
+    memo            TEXT NOT NULL DEFAULT '',
+    isbn            TEXT NOT NULL DEFAULT '',
+    publisher       TEXT NOT NULL DEFAULT '',
+    published_year  TEXT NOT NULL DEFAULT '',
+    page_count      INTEGER,
+    language        TEXT NOT NULL DEFAULT '',
+    thumbnail_url   TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_books_box ON books(box_id);
@@ -41,8 +47,20 @@ def _migrate(conn):
     if "memo" not in existing:
         conn.execute("ALTER TABLE boxes ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
     existing = {row[1] for row in conn.execute("PRAGMA table_info(books)").fetchall()}
-    if "memo" not in existing:
-        conn.execute("ALTER TABLE books ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
+    new_cols = {
+        "memo": "TEXT NOT NULL DEFAULT ''",
+        "isbn": "TEXT NOT NULL DEFAULT ''",
+        "publisher": "TEXT NOT NULL DEFAULT ''",
+        "published_year": "TEXT NOT NULL DEFAULT ''",
+        "page_count": "INTEGER",
+        "language": "TEXT NOT NULL DEFAULT ''",
+        "thumbnail_url": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, typedef in new_cols.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE books ADD COLUMN {col} {typedef}")
+    # Create indexes for new columns
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_books_isbn ON books(isbn)")
     conn.commit()
 
 
