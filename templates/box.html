@@ -9,18 +9,46 @@
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                background: #f5f5f5; color: #333; padding: 16px; max-width: 600px; margin: 0 auto; }
         h1 { font-size: 1.4rem; margin-bottom: 4px; }
+        .back { text-decoration: none; color: #1976d2; font-size: 0.9rem; display: inline-block; margin-bottom: 12px; }
         .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 16px; }
         .book-count { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 16px;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.1); color: #666; font-size: 0.9rem; }
+                      box-shadow: 0 1px 3px rgba(0,0,0,0.1); color: #666; font-size: 0.9rem; }
         .book-list { list-style: none; }
         .book-item { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px;
-                     box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+                     box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 10px; }
+        .book-item.selected { border: 2px solid #1976d2; background: #e3f2fd; }
+        .book-cb { width: 20px; height: 20px; flex-shrink: 0; display: none; }
+        .select-mode .book-cb { display: block; }
+        .book-info { flex: 1; }
         .book-title { font-weight: 600; }
         .book-meta { font-size: 0.85rem; color: #666; margin-top: 4px; }
-        .back { text-decoration: none; color: #1976d2; font-size: 0.9rem; display: inline-block; margin-bottom: 12px; }
         .empty { text-align: center; padding: 32px; color: #999; }
-        .btn { display: inline-block; background: #1976d2; color: #fff; padding: 10px 20px;
-               border-radius: 8px; text-decoration: none; font-size: 0.95rem; margin-top: 12px; }
+
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+        .btn { display: inline-block; background: #1976d2; color: #fff; padding: 10px 16px;
+               border-radius: 8px; text-decoration: none; font-size: 0.9rem; border: none; cursor: pointer; }
+        .btn-outline { background: #fff; color: #666; border: 1.5px solid #ddd; }
+        .btn-outline:active { background: #f5f5f5; }
+        .btn-danger { background: #fff; color: #f44336; border: 1.5px solid #f44336; }
+        .btn:disabled { opacity: 0.4; }
+
+        /* Move bar */
+        .move-bar { display: none; background: #1976d2; color: #fff; border-radius: 8px; padding: 12px;
+                    margin-bottom: 12px; }
+        .move-bar.show { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .move-bar select { padding: 6px 8px; border-radius: 6px; border: none; font-size: 0.9rem; flex: 1; }
+        .move-bar button { background: #fff; color: #1976d2; border: none; border-radius: 6px;
+                           padding: 6px 14px; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+        .move-bar .sel-count { font-size: 0.85rem; }
+
+        .archive-link { display: block; text-align: center; margin-top: 20px; font-size: 0.75rem;
+                        color: #ccc; text-decoration: none; border: none; background: none; cursor: pointer; }
+        .archive-link:hover { color: #999; }
+
+        .success { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 8px; padding: 14px;
+                   margin-bottom: 16px; display: none; }
+        .success.show { display: block; }
+        .success a { color: #1976d2; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -28,14 +56,36 @@
     <h1>📦 {{ box.label }}</h1>
     <p class="subtitle">ID: {{ box.id }}</p>
 
+    <div id="successMsg" class="success"></div>
+
     <div class="book-count">📚 {{ book_count }} book{{ 's' if book_count != 1 else '' }}</div>
 
+    {% if not box.archived %}
+    <div class="move-bar" id="moveBar">
+        <span class="sel-count" id="selCount">0 selected</span>
+        <select id="moveTarget">
+            {% for t in move_targets %}
+            <option value="{{ t.id }}">{{ t.label }}</option>
+            {% endfor %}
+        </select>
+        <button onclick="moveSelected()">Move</button>
+    </div>
+
+    <div class="actions">
+        <a class="btn" href="/add?box_id={{ box.id }}">+ Add</a>
+        <button class="btn btn-outline" id="selectBtn" onclick="toggleSelectMode()">Select &amp; Move</button>
+    </div>
+    {% endif %}
+
     {% if books %}
-    <ul class="book-list">
+    <ul class="book-list" id="bookList">
         {% for book in books %}
-        <li class="book-item">
-            <div class="book-title">{{ book.title }}</div>
-            <div class="book-meta">{{ book.author }}{% if book.genre %} · {{ book.genre }}{% endif %}</div>
+        <li class="book-item" data-id="{{ book.id }}">
+            <input type="checkbox" class="book-cb" onchange="updateSelection()">
+            <div class="book-info">
+                <div class="book-title">{{ book.title }}</div>
+                <div class="book-meta">{{ book.author }}{% if book.genre %} · {{ book.genre }}{% endif %}</div>
+            </div>
         </li>
         {% endfor %}
     </ul>
@@ -43,6 +93,60 @@
     <div class="empty">No books in this box yet.</div>
     {% endif %}
 
-    <a class="btn" href="/add?box_id={{ box.id }}">+ Add a Book</a>
+    {% if not box.archived %}
+    <button class="archive-link" onclick="archiveBox()">🗃️ Archive this box</button>
+    {% endif %}
+
+    <script>
+        let selectMode = false;
+
+        function toggleSelectMode() {
+            selectMode = !selectMode;
+            document.getElementById('bookList')?.classList.toggle('select-mode', selectMode);
+            document.getElementById('selectBtn').textContent = selectMode ? 'Cancel' : 'Select & Move';
+            if (!selectMode) {
+                document.querySelectorAll('.book-cb').forEach(cb => cb.checked = false);
+                document.querySelectorAll('.book-item').forEach(el => el.classList.remove('selected'));
+                document.getElementById('moveBar').classList.remove('show');
+            }
+            updateSelection();
+        }
+
+        function updateSelection() {
+            const checked = document.querySelectorAll('.book-cb:checked');
+            const count = checked.length;
+            document.getElementById('selCount').textContent = count + ' selected';
+            document.querySelectorAll('.book-item').forEach(el => {
+                el.classList.toggle('selected', el.querySelector('.book-cb')?.checked);
+            });
+            document.getElementById('moveBar').classList.toggle('show', selectMode && count > 0);
+        }
+
+        function moveSelected() {
+            const ids = [];
+            document.querySelectorAll('.book-item').forEach(el => {
+                if (el.querySelector('.book-cb')?.checked) ids.push(parseInt(el.dataset.id));
+            });
+            const target = document.getElementById('moveTarget').value;
+            if (!ids.length || !target) return;
+            fetch('/api/books/move', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({book_ids: ids, target_box_id: target}),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) location.reload();
+                else alert(data.error || 'Error');
+            });
+        }
+
+        function archiveBox() {
+            if (!confirm('Archive this box? It will be hidden from the main view.')) return;
+            fetch('/api/box/{{ box.id }}/archive', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => { if (data.ok) location.href = '/'; });
+        }
+    </script>
 </body>
 </html>

@@ -17,11 +17,11 @@ def suggest_box(conn: sqlite3.Connection, author: str = "", genre: str = "") -> 
     if not author and not genre:
         return None, ""
 
-    # Get all boxes with their counts
+    # Get active boxes with their counts
     boxes = conn.execute(
         "SELECT b.id, b.label, COUNT(bk.id) AS book_count "
         "FROM boxes b LEFT JOIN books bk ON bk.box_id = b.id "
-        "GROUP BY b.id"
+        "WHERE b.archived = 0 GROUP BY b.id"
     ).fetchall()
 
     scores: list[tuple[float, int, str, str, list[str]]] = []  # (score, -count, box_id, label, reasons)

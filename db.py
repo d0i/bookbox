@@ -6,7 +6,8 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "bookbox.db")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS boxes (
     id          TEXT PRIMARY KEY,   -- e.g. 'rox-001'
-    label       TEXT NOT NULL       -- friendly name
+    label       TEXT NOT NULL,      -- friendly name
+    archived    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS books (
