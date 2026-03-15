@@ -185,7 +185,6 @@
         let scannedIsbns = new Set();
         let lastScannedCode = '';
         let lookupInFlight = 0;
-        let lastScannedCode = '';
 
         // ── Scanner ───────────────────────────
         function startScanner() {
@@ -216,11 +215,7 @@
         }
 
         function onScanSuccess(decodedText) {
-            // Debounce: silently ignore if same code scanned in succession
-            if (decodedText === lastScannedCode) return;
-            lastScannedCode = decodedText;
-
-            // Silently ignore same code scanned in succession
+            // Debounce: silently ignore same code scanned in succession
             if (decodedText === lastScannedCode) return;
             lastScannedCode = decodedText;
 
