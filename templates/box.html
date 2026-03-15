@@ -21,12 +21,14 @@
                      box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .book-title { font-weight: 600; }
         .book-meta { font-size: 0.85rem; color: #666; margin-top: 4px; }
+        .back { text-decoration: none; color: #1976d2; font-size: 0.9rem; display: inline-block; margin-bottom: 12px; }
         .empty { text-align: center; padding: 32px; color: #999; }
         .btn { display: inline-block; background: #1976d2; color: #fff; padding: 10px 20px;
                border-radius: 8px; text-decoration: none; font-size: 0.95rem; margin-top: 12px; }
     </style>
 </head>
 <body>
+    <a class="back" href="/">&larr; All Boxes</a>
     <h1>📦 {{ box.label }}</h1>
     <p class="subtitle">ID: {{ box.id }}</p>
 

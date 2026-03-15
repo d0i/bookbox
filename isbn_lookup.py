@@ -106,15 +106,30 @@ async def _lookup_async(isbn: str) -> list[dict]:
             _openlibrary(isbn, client),
             return_exceptions=True,
         )
+    # Collect all valid results
+    all_results = [r for r in results if isinstance(r, dict) and r.get("title")]
+
+    # Find the best genre from any source to use as fallback
+    best_genre = ""
+    for r in all_results:
+        if r.get("genre"):
+            best_genre = r["genre"]
+            break
+
+    # Back-fill genre into candidates that lack one
+    if best_genre:
+        for r in all_results:
+            if not r.get("genre"):
+                r["genre"] = best_genre
+
+    # Deduplicate by normalized title
     candidates = []
     seen_titles = set()
-    for r in results:
-        if isinstance(r, dict) and r.get("title"):
-            # Deduplicate by normalized title
-            norm = r["title"].lower().strip()
-            if norm not in seen_titles:
-                seen_titles.add(norm)
-                candidates.append(r)
+    for r in all_results:
+        norm = r["title"].lower().strip()
+        if norm not in seen_titles:
+            seen_titles.add(norm)
+            candidates.append(r)
     return candidates
 
 
