@@ -1,7 +1,7 @@
 import sqlite3
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "bookbox.db")
+DB_PATH = os.environ.get("BOOKBOX_DB", os.path.join(os.path.dirname(__file__), "bookbox.db"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS boxes (
