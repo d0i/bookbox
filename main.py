@@ -1,5 +1,8 @@
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+import json
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
@@ -400,6 +403,118 @@ def api_batch_add(req: BatchAddRequest):
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True, "count": added})
+
+
+# ── Export / Import ───────────────────────────────
+
+def _box_to_dict(conn, box_id: str) -> dict | None:
+    box = conn.execute("SELECT * FROM boxes WHERE id = ?", (box_id,)).fetchone()
+    if not box:
+        return None
+    books = conn.execute(
+        "SELECT * FROM books WHERE box_id = ? ORDER BY id", (box_id,)
+    ).fetchall()
+    return {
+        "id": box["id"],
+        "label": box["label"],
+        "archived": bool(box["archived"]),
+        "memo": box["memo"],
+        "books": [
+            {
+                "title": bk["title"],
+                "author": bk["author"],
+                "genre": bk["genre"],
+                "memo": bk["memo"],
+                "created_at": bk["created_at"],
+            }
+            for bk in books
+        ],
+    }
+
+
+@app.get("/api/box/{box_id}/export")
+def export_box(box_id: str):
+    conn = get_db()
+    data = _box_to_dict(conn, box_id)
+    conn.close()
+    if not data:
+        return JSONResponse({"ok": False, "error": "Box not found"}, status_code=404)
+    content = json.dumps(data, ensure_ascii=False, indent=2)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{box_id}.json"'},
+    )
+
+
+@app.get("/api/export")
+def export_all():
+    conn = get_db()
+    boxes = conn.execute("SELECT id FROM boxes ORDER BY id").fetchall()
+    data = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "boxes": [_box_to_dict(conn, row["id"]) for row in boxes],
+    }
+    conn.close()
+    content = json.dumps(data, ensure_ascii=False, indent=2)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="bookbox-export.json"'},
+    )
+
+
+@app.post("/api/box/{box_id}/import")
+async def import_box(box_id: str, file: UploadFile = File(...)):
+    conn = get_db()
+    box = conn.execute("SELECT id FROM boxes WHERE id = ?", (box_id,)).fetchone()
+    if not box:
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Box not found"}, status_code=404)
+    raw = await file.read()
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Invalid JSON file"}, status_code=400)
+    # Accept both {books: [...]} and bare [...]
+    books = data if isinstance(data, list) else data.get("books", [])
+    if not isinstance(books, list):
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Expected a list of books or {books: [...]}"}, status_code=400)
+    # Replace all books in this box
+    conn.execute("DELETE FROM books WHERE box_id = ?", (box_id,))
+    added = 0
+    for bk in books:
+        if not isinstance(bk, dict):
+            continue
+        title = str(bk.get("title", "")).strip()
+        author = str(bk.get("author", "")).strip()
+        if not title:
+            continue
+        genre = str(bk.get("genre", "")).strip()
+        memo = str(bk.get("memo", "")).strip()
+        created = bk.get("created_at", None)
+        if created:
+            conn.execute(
+                "INSERT INTO books (title, author, genre, memo, box_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (title, author, genre, memo, box_id, created),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO books (title, author, genre, memo, box_id) VALUES (?, ?, ?, ?, ?)",
+                (title, author, genre, memo, box_id),
+            )
+        added += 1
+    # Update box memo/label if present in data
+    if isinstance(data, dict):
+        if "memo" in data:
+            conn.execute("UPDATE boxes SET memo = ? WHERE id = ?", (str(data["memo"]), box_id))
+        if "label" in data:
+            conn.execute("UPDATE boxes SET label = ? WHERE id = ?", (str(data["label"]), box_id))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True, "replaced": added})
 
 
 if __name__ == "__main__":

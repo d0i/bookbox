@@ -111,6 +111,9 @@
     <div class="actions">
         <a class="btn" href="/add?box_id={{ box.id }}">+ Add</a>
         <button class="btn btn-outline" id="selectBtn" onclick="toggleSelectMode()">Select &amp; Move</button>
+        <a class="btn btn-outline" href="/api/box/{{ box.id }}/export" download>⬇ Export</a>
+        <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆ Import</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" onchange="importBox(this)">
     </div>
     {% endif %}
 
@@ -189,6 +192,28 @@
             fetch('/api/box/{{ box.id }}/archive', {method: 'POST'})
                 .then(r => r.json())
                 .then(data => { if (data.ok) location.href = '/'; });
+        }
+
+        function importBox(input) {
+            const file = input.files[0];
+            if (!file) return;
+            if (!confirm('This will REPLACE all books in this box with the imported data. Continue?')) {
+                input.value = '';
+                return;
+            }
+            const fd = new FormData();
+            fd.append('file', file);
+            fetch('/api/box/{{ box.id }}/import', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        location.reload();
+                    } else {
+                        alert('Import error: ' + (data.error || 'Unknown'));
+                    }
+                })
+                .catch(() => alert('Network error'))
+                .finally(() => { input.value = ''; });
         }
 
         // Rename
