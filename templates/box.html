@@ -49,11 +49,35 @@
                    margin-bottom: 16px; display: none; }
         .success.show { display: block; }
         .success a { color: #1976d2; font-weight: 600; }
+
+        /* Editable label */
+        .label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .label-row h1 { margin-bottom: 0; }
+        .edit-btn { background: none; border: none; cursor: pointer; font-size: 1rem; color: #999; padding: 4px; }
+        .edit-btn:hover { color: #1976d2; }
+        .rename-row { display: none; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .rename-row.show { display: flex; }
+        .rename-row input { flex: 1; padding: 8px 10px; border: 1.5px solid #1976d2; border-radius: 8px;
+                            font-size: 1.1rem; font-weight: 600; }
+        .rename-row input:focus { outline: none; }
+        .rename-row button { padding: 8px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; }
+        .rename-save { background: #1976d2; color: #fff; border: none; font-weight: 600; }
+        .rename-cancel { background: #f5f5f5; border: 1.5px solid #ddd; color: #666; }
     </style>
 </head>
 <body>
     <a class="back" href="/">&larr; All Boxes</a>
-    <h1>📦 {{ box.label }}</h1>
+    <div class="label-row" id="labelRow">
+        <h1>📦 <span id="labelText">{{ box.label }}</span></h1>
+        {% if not box.archived %}
+        <button class="edit-btn" onclick="startRename()" title="Rename">✏️</button>
+        {% endif %}
+    </div>
+    <div class="rename-row" id="renameRow">
+        <input type="text" id="renameInput" value="{{ box.label }}">
+        <button class="rename-save" onclick="saveRename()">Save</button>
+        <button class="rename-cancel" onclick="cancelRename()">Cancel</button>
+    </div>
     <p class="subtitle">ID: {{ box.id }}</p>
 
     <div id="successMsg" class="success"></div>
@@ -147,6 +171,47 @@
                 .then(r => r.json())
                 .then(data => { if (data.ok) location.href = '/'; });
         }
+
+        // Rename
+        function startRename() {
+            document.getElementById('labelRow').style.display = 'none';
+            document.getElementById('renameRow').classList.add('show');
+            const inp = document.getElementById('renameInput');
+            inp.focus();
+            inp.select();
+        }
+
+        function cancelRename() {
+            document.getElementById('renameRow').classList.remove('show');
+            document.getElementById('labelRow').style.display = '';
+            document.getElementById('renameInput').value = document.getElementById('labelText').textContent;
+        }
+
+        function saveRename() {
+            const label = document.getElementById('renameInput').value.trim();
+            if (!label) return;
+            fetch('/api/box/{{ box.id }}', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({label: label}),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    document.getElementById('labelText').textContent = data.label;
+                    document.title = data.label;
+                    cancelRename();
+                } else {
+                    alert(data.error || 'Error');
+                }
+            });
+        }
+
+        // Enter to save, Escape to cancel
+        document.getElementById('renameInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') saveRename();
+            if (e.key === 'Escape') cancelRename();
+        });
     </script>
 </body>
 </html>

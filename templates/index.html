@@ -35,10 +35,30 @@
         .box-label { font-weight: 600; font-size: 1.05rem; }
         .box-meta { font-size: 0.85rem; color: #666; margin-top: 4px; }
         .btn { display: inline-block; background: #1976d2; color: #fff; padding: 10px 20px;
-               border-radius: 8px; text-decoration: none; font-size: 0.95rem; margin-top: 12px; }
+               border-radius: 8px; text-decoration: none; font-size: 0.95rem; border: none; cursor: pointer; }
+        .btn-outline { background: #fff; color: #666; border: 1.5px solid #ddd; }
+        .btn-outline:active { background: #f5f5f5; }
         .archive-link { display: block; text-align: center; margin-top: 24px; font-size: 0.75rem; color: #aaa;
                         text-decoration: none; }
         .archive-link:hover { color: #666; }
+
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+                         z-index: 100; align-items: center; justify-content: center; padding: 16px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: #fff; border-radius: 12px; padding: 20px; width: 100%; max-width: 400px;
+                 box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+        .modal h2 { font-size: 1.2rem; margin-bottom: 14px; }
+        .modal label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 4px; margin-top: 10px; }
+        .modal input { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px;
+                       font-size: 1rem; }
+        .modal input:focus { outline: none; border-color: #1976d2; }
+        .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+        .modal-actions button { padding: 8px 18px; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
+        .modal .cancel-btn { background: #f5f5f5; border: 1.5px solid #ddd; color: #666; }
+        .modal .save-btn { background: #1976d2; color: #fff; border: none; font-weight: 600; }
+        .modal .save-btn:disabled { opacity: 0.4; }
+        .modal .error-msg { color: #f44336; font-size: 0.85rem; margin-top: 8px; display: none; }
     </style>
 </head>
 <body>
@@ -56,11 +76,30 @@
         <div class="box-meta">{{ box.book_count }} book{{ 's' if box.book_count != 1 else '' }}</div>
     </a>
     {% endfor %}
-    <a class="btn" href="/add">+ Add a Book</a>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+        <a class="btn" href="/add">+ Add a Book</a>
+        <button class="btn btn-outline" onclick="document.getElementById('newBoxModal').classList.add('show')">+ New Box</button>
+    </div>
 
     {% if archived_count > 0 %}
     <a class="archive-link" href="/archived">🗃️ {{ archived_count }} archived box{{ 'es' if archived_count != 1 else '' }}</a>
     {% endif %}
+
+    <!-- New Box Modal -->
+    <div class="modal-overlay" id="newBoxModal">
+        <div class="modal">
+            <h2>📦 New Box</h2>
+            <label for="newBoxId">Box ID <span style="color:#999">(e.g. rox-011)</span></label>
+            <input type="text" id="newBoxId" placeholder="rox-011" autocomplete="off">
+            <label for="newBoxLabel">Label</label>
+            <input type="text" id="newBoxLabel" placeholder="ROX 530m Box #11" autocomplete="off">
+            <div class="error-msg" id="newBoxError"></div>
+            <div class="modal-actions">
+                <button class="cancel-btn" onclick="closeNewBoxModal()">Cancel</button>
+                <button class="save-btn" id="newBoxSave" onclick="createBox()">Create</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         const input = document.getElementById('searchInput');
@@ -97,6 +136,50 @@
         });
 
         function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        // New Box modal
+        function closeNewBoxModal() {
+            document.getElementById('newBoxModal').classList.remove('show');
+            document.getElementById('newBoxId').value = '';
+            document.getElementById('newBoxLabel').value = '';
+            document.getElementById('newBoxError').style.display = 'none';
+        }
+
+        // Close modal on overlay click
+        document.getElementById('newBoxModal').addEventListener('click', e => {
+            if (e.target === e.currentTarget) closeNewBoxModal();
+        });
+
+        function createBox() {
+            const idEl = document.getElementById('newBoxId');
+            const labelEl = document.getElementById('newBoxLabel');
+            const errEl = document.getElementById('newBoxError');
+            const boxId = idEl.value.trim();
+            const label = labelEl.value.trim();
+            if (!boxId) { errEl.textContent = 'Box ID is required'; errEl.style.display = 'block'; return; }
+            errEl.style.display = 'none';
+            document.getElementById('newBoxSave').disabled = true;
+            fetch('/api/boxes', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: boxId, label: label}),
+            })
+            .then(r => r.json().then(d => ({status: r.status, data: d})))
+            .then(({status, data}) => {
+                if (data.ok) {
+                    location.reload();
+                } else {
+                    errEl.textContent = data.error || 'Error creating box';
+                    errEl.style.display = 'block';
+                    document.getElementById('newBoxSave').disabled = false;
+                }
+            })
+            .catch(() => {
+                errEl.textContent = 'Network error';
+                errEl.style.display = 'block';
+                document.getElementById('newBoxSave').disabled = false;
+            });
+        }
     </script>
 </body>
 </html>

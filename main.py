@@ -71,6 +71,50 @@ def index(request: Request):
     })
 
 
+# ── Add / Rename Box ─────────────────────────────
+
+class AddBoxRequest(BaseModel):
+    id: str
+    label: str = ""
+
+
+@app.post("/api/boxes")
+def add_box(req: AddBoxRequest):
+    box_id = req.id.strip()
+    if not box_id:
+        return JSONResponse({"ok": False, "error": "Box ID is required"}, status_code=400)
+    label = req.label.strip() or box_id
+    conn = get_db()
+    existing = conn.execute("SELECT id FROM boxes WHERE id = ?", (box_id,)).fetchone()
+    if existing:
+        conn.close()
+        return JSONResponse({"ok": False, "error": "A box with this ID already exists"}, status_code=409)
+    conn.execute("INSERT INTO boxes (id, label) VALUES (?, ?)", (box_id, label))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True, "id": box_id, "label": label})
+
+
+class RenameBoxRequest(BaseModel):
+    label: str
+
+
+@app.patch("/api/box/{box_id}")
+def rename_box(box_id: str, req: RenameBoxRequest):
+    label = req.label.strip()
+    if not label:
+        return JSONResponse({"ok": False, "error": "Label is required"}, status_code=400)
+    conn = get_db()
+    box = conn.execute("SELECT id FROM boxes WHERE id = ?", (box_id,)).fetchone()
+    if not box:
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Box not found"}, status_code=404)
+    conn.execute("UPDATE boxes SET label = ? WHERE id = ?", (label, box_id))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True, "label": label})
+
+
 # ── Box View ──────────────────────────────────────
 
 @app.get("/box/{box_id}", response_class=HTMLResponse)
