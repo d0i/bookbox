@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from db import init_db, get_db
+from suggest import suggest_box
 
 app = FastAPI(title="BookBox")
 templates = Jinja2Templates(directory="templates")
@@ -41,6 +42,88 @@ def box_view(request: Request, box_id: str):
         "box.html",
         {"request": request, "box": box, "books": books, "book_count": book_count},
     )
+
+
+# ── Helpers ──────────────────────────────────────────
+
+def _boxes_with_counts(conn):
+    return conn.execute(
+        "SELECT b.*, COUNT(bk.id) AS book_count "
+        "FROM boxes b LEFT JOIN books bk ON bk.box_id = b.id "
+        "GROUP BY b.id ORDER BY b.id"
+    ).fetchall()
+
+
+def _genres(conn):
+    rows = conn.execute("SELECT DISTINCT genre FROM books WHERE genre != '' ORDER BY genre").fetchall()
+    return [r["genre"] for r in rows]
+
+
+def _add_ctx(conn, author="", genre=""):
+    """Build the template context for the add form."""
+    boxes = _boxes_with_counts(conn)
+    genres = _genres(conn)
+    suggested_box, reason = suggest_box(conn, author, genre)
+    if not suggested_box and boxes:
+        suggested_box = boxes[0]["id"]
+    return {
+        "boxes": boxes,
+        "genres": genres,
+        "suggested_box": suggested_box,
+        "suggestion_reason": reason,
+    }
+
+
+# ── Add Book ─────────────────────────────────────────
+
+@app.get("/add", response_class=HTMLResponse)
+def add_form(request: Request, box_id: str = ""):
+    conn = get_db()
+    ctx = _add_ctx(conn)
+    if box_id:
+        ctx["suggested_box"] = box_id
+        ctx["suggestion_reason"] = ""
+    conn.close()
+    return templates.TemplateResponse("add.html", {"request": request, "form": {}, "success": None, **ctx})
+
+
+@app.post("/add", response_class=HTMLResponse)
+def add_book(request: Request, title: str = Form(...), author: str = Form(...),
+             genre: str = Form(""), box_id: str = Form(...)):
+    conn = get_db()
+    # Validate box exists and has capacity
+    box = conn.execute("SELECT * FROM boxes WHERE id = ?", (box_id,)).fetchone()
+    if not box:
+        conn.close()
+        return HTMLResponse("Box not found", status_code=404)
+    count = conn.execute("SELECT COUNT(*) FROM books WHERE box_id = ?", (box_id,)).fetchone()[0]
+    if count >= box["max_capacity"]:
+        conn.close()
+        ctx = _add_ctx(conn, author, genre)
+        return templates.TemplateResponse("add.html", {
+            "request": request, "form": {"title": title, "author": author, "genre": genre},
+            "success": None, "error": f"{box['label']} is full!", **ctx
+        })
+    conn.execute("INSERT INTO books (title, author, genre, box_id) VALUES (?, ?, ?, ?)",
+                 (title.strip(), author.strip(), genre.strip(), box_id))
+    conn.commit()
+    ctx = _add_ctx(conn)
+    conn.close()
+    return templates.TemplateResponse("add.html", {
+        "request": request, "form": {},
+        "success": {"title": title, "box_id": box_id, "box_label": box["label"]},
+        **ctx,
+    })
+
+
+# ── Suggestion API (for live JS updates) ─────────────
+
+@app.get("/api/suggest-box")
+def api_suggest(author: str = "", genre: str = ""):
+    conn = get_db()
+    box_id, reason = suggest_box(conn, author, genre)
+    conn.close()
+    return JSONResponse({"box_id": box_id, "reason": reason})
 
 
 if __name__ == "__main__":
