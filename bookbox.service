@@ -1,0 +1,14 @@
+[Unit]
+Description=BookBox Web App
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/bookbox
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
