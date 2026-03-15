@@ -34,7 +34,11 @@
     </style>
 </head>
 <body>
+    {% if from_box %}
+    <a class="back" href="/box/{{ from_box }}">&larr; Back to {{ from_box_label }}</a>
+    {% else %}
     <a class="back" href="/">&larr; All Boxes</a>
+    {% endif %}
     <h1>📖 Add a Book</h1>
 
     <div class="method-tabs">
@@ -50,6 +54,7 @@
     {% endif %}
 
     <form method="POST" action="/add" id="addForm">
+        {% if from_box %}<input type="hidden" name="from_box" value="{{ from_box }}">{% endif %}
         <label for="title">Title</label>
         <input type="text" id="title" name="title" required placeholder="e.g. The Great Gatsby"
                value="{{ form.title or '' }}">
@@ -85,7 +90,8 @@
     </form>
 
     <script>
-        // Live suggestion: when author or genre changes, fetch updated suggestion
+    {% if not from_box %}
+        // Live suggestion: only when adding from "All Boxes" (no specific box context)
         let debounce;
         const author = document.getElementById('author');
         const genre = document.getElementById('genre');
@@ -115,6 +121,7 @@
         author.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(fetchSuggestion, 400); });
         genre.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(fetchSuggestion, 400); });
         genre.addEventListener('change', fetchSuggestion);
+    {% endif %}
     </script>
 </body>
 </html>

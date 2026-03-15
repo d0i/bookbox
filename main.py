@@ -76,21 +76,34 @@ def _add_ctx(conn, author="", genre=""):
 
 # ── Add Book ─────────────────────────────────────────
 
+def _from_box_ctx(conn, box_id: str) -> dict:
+    """Build from_box context if a valid box_id is provided."""
+    if not box_id:
+        return {"from_box": None, "from_box_label": None}
+    box = conn.execute("SELECT * FROM boxes WHERE id = ?", (box_id,)).fetchone()
+    if box:
+        return {"from_box": box["id"], "from_box_label": box["label"]}
+    return {"from_box": None, "from_box_label": None}
+
+
 @app.get("/add", response_class=HTMLResponse)
 def add_form(request: Request, box_id: str = ""):
     conn = get_db()
+    fb = _from_box_ctx(conn, box_id)
     ctx = _add_ctx(conn)
-    if box_id:
-        ctx["suggested_box"] = box_id
+    if fb["from_box"]:
+        # Lock to the originating box, suppress suggestion
+        ctx["suggested_box"] = fb["from_box"]
         ctx["suggestion_reason"] = ""
     conn.close()
-    return templates.TemplateResponse("add.html", {"request": request, "form": {}, "success": None, **ctx})
+    return templates.TemplateResponse("add.html", {"request": request, "form": {}, "success": None, **fb, **ctx})
 
 
 @app.post("/add", response_class=HTMLResponse)
 def add_book(request: Request, title: str = Form(...), author: str = Form(...),
-             genre: str = Form(""), box_id: str = Form(...)):
+             genre: str = Form(""), box_id: str = Form(...), from_box: str = Form("")):
     conn = get_db()
+    fb = _from_box_ctx(conn, from_box)
     # Validate box exists and has capacity
     box = conn.execute("SELECT * FROM boxes WHERE id = ?", (box_id,)).fetchone()
     if not box:
@@ -98,21 +111,27 @@ def add_book(request: Request, title: str = Form(...), author: str = Form(...),
         return HTMLResponse("Box not found", status_code=404)
     count = conn.execute("SELECT COUNT(*) FROM books WHERE box_id = ?", (box_id,)).fetchone()[0]
     if count >= box["max_capacity"]:
-        conn.close()
         ctx = _add_ctx(conn, author, genre)
+        if fb["from_box"]:
+            ctx["suggested_box"] = fb["from_box"]
+            ctx["suggestion_reason"] = ""
+        conn.close()
         return templates.TemplateResponse("add.html", {
             "request": request, "form": {"title": title, "author": author, "genre": genre},
-            "success": None, "error": f"{box['label']} is full!", **ctx
+            "success": None, "error": f"{box['label']} is full!", **fb, **ctx
         })
     conn.execute("INSERT INTO books (title, author, genre, box_id) VALUES (?, ?, ?, ?)",
                  (title.strip(), author.strip(), genre.strip(), box_id))
     conn.commit()
     ctx = _add_ctx(conn)
+    if fb["from_box"]:
+        ctx["suggested_box"] = fb["from_box"]
+        ctx["suggestion_reason"] = ""
     conn.close()
     return templates.TemplateResponse("add.html", {
         "request": request, "form": {},
         "success": {"title": title, "box_id": box_id, "box_label": box["label"]},
-        **ctx,
+        **fb, **ctx,
     })
 
 
