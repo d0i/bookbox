@@ -148,13 +148,17 @@ bookbox/
 
 ## NFC Integration
 
-Write an NFC tag for each box with the URL:
+Each box page has a **📱 Write NFC** button (visible on devices that support Web NFC — Chrome on Android).
 
-```
-https://your-domain:8000/box/rox-001
-```
+1. Open a box page on your phone
+2. Tap **📱 Write NFC**
+3. Hold a blank NFC tag against the back of your phone
+4. The tag is written with a URL record pointing to that box’s page
+5. Stick the tag on the physical box
 
-Tap the tag with your phone → opens the box page → add/scan books directly into that box.
+Now anyone can tap the tag to jump straight to the box’s inventory page.
+
+> **Note:** Web NFC requires HTTPS and Chrome on Android. The button is automatically hidden on unsupported browsers.
 
 ## Export Format
 

@@ -76,6 +76,30 @@
         .memo-area:focus { outline: none; border-color: #1976d2; background: #fff; }
         .save-status { font-size: 0.8rem; color: #999; margin-top: 4px; min-height: 1.2em; }
         .save-status.saved { color: #4caf50; }
+
+        /* NFC modal */
+        .nfc-btn { display: none; }
+        .nfc-btn.supported { display: inline-block; }
+        .nfc-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+                       z-index: 200; align-items: center; justify-content: center; padding: 16px; }
+        .nfc-overlay.show { display: flex; }
+        .nfc-modal { background: #fff; border-radius: 16px; padding: 28px 24px; width: 100%; max-width: 360px;
+                     text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+        .nfc-icon { font-size: 3rem; margin-bottom: 12px; }
+        .nfc-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 8px; }
+        .nfc-desc { font-size: 0.9rem; color: #666; margin-bottom: 6px; line-height: 1.4; }
+        .nfc-url { font-size: 0.75rem; color: #999; word-break: break-all; background: #f5f5f5;
+                   padding: 8px 10px; border-radius: 6px; margin: 10px 0; }
+        .nfc-status { margin-top: 12px; font-size: 0.9rem; font-weight: 600; }
+        .nfc-status.waiting { color: #ff9800; }
+        .nfc-status.writing { color: #1976d2; }
+        .nfc-status.done { color: #4caf50; }
+        .nfc-status.error { color: #f44336; }
+        .nfc-cancel { margin-top: 16px; padding: 10px 24px; background: #f5f5f5; border: 1.5px solid #ddd;
+                      color: #666; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
+        .nfc-cancel:active { background: #eee; }
+        @keyframes nfc-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+        .nfc-icon.pulse { animation: nfc-pulse 1.2s ease-in-out infinite; }
     </style>
 </head>
 <body>
@@ -114,6 +138,7 @@
         <a class="btn btn-outline" href="/api/box/{{ box.id }}/export" download>⬇ Export</a>
         <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">⬆ Import</button>
         <input type="file" id="importFile" accept=".json" style="display:none" onchange="importBox(this)">
+        <button class="btn btn-outline nfc-btn" id="nfcBtn" onclick="startNfcWrite()">📱 Write NFC</button>
     </div>
     {% endif %}
 
@@ -142,6 +167,18 @@
     {% if not box.archived %}
     <button class="archive-link" onclick="archiveBox()">🗃️ Archive this box</button>
     {% endif %}
+
+    <!-- NFC Write Modal -->
+    <div class="nfc-overlay" id="nfcOverlay">
+        <div class="nfc-modal">
+            <div class="nfc-icon" id="nfcIcon">📱</div>
+            <div class="nfc-title" id="nfcTitle">Write NFC Tag</div>
+            <div class="nfc-desc" id="nfcDesc">Hold an NFC tag against the back of your phone</div>
+            <div class="nfc-url" id="nfcUrl"></div>
+            <div class="nfc-status waiting" id="nfcStatus">Waiting for tag…</div>
+            <button class="nfc-cancel" id="nfcCancel" onclick="cancelNfcWrite()">Cancel</button>
+        </div>
+    </div>
 
     <script>
         let selectMode = false;
@@ -255,6 +292,80 @@
         document.getElementById('renameInput').addEventListener('keydown', e => {
             if (e.key === 'Enter') saveRename();
             if (e.key === 'Escape') cancelRename();
+        });
+
+        // NFC write
+        (function() {
+            if ('NDEFReader' in window) {
+                document.getElementById('nfcBtn').classList.add('supported');
+            }
+        })();
+
+        let nfcAbort = null;
+
+        async function startNfcWrite() {
+            const boxUrl = window.location.origin + '/box/{{ box.id }}';
+            document.getElementById('nfcUrl').textContent = boxUrl;
+            document.getElementById('nfcIcon').textContent = '📱';
+            document.getElementById('nfcIcon').classList.add('pulse');
+            document.getElementById('nfcTitle').textContent = 'Write NFC Tag';
+            document.getElementById('nfcDesc').textContent = 'Hold an NFC tag against the back of your phone';
+            document.getElementById('nfcStatus').textContent = 'Waiting for tag…';
+            document.getElementById('nfcStatus').className = 'nfc-status waiting';
+            document.getElementById('nfcCancel').textContent = 'Cancel';
+            document.getElementById('nfcOverlay').classList.add('show');
+
+            try {
+                const ndef = new NDEFReader();
+                nfcAbort = new AbortController();
+
+                await ndef.write(
+                    { records: [{ recordType: "url", data: boxUrl }] },
+                    { signal: nfcAbort.signal }
+                );
+
+                // Success
+                document.getElementById('nfcIcon').textContent = '✅';
+                document.getElementById('nfcIcon').classList.remove('pulse');
+                document.getElementById('nfcTitle').textContent = 'Tag Written!';
+                document.getElementById('nfcDesc').textContent = 'The NFC tag now links to this box. Stick it on the box!';
+                document.getElementById('nfcStatus').textContent = 'Success';
+                document.getElementById('nfcStatus').className = 'nfc-status done';
+                document.getElementById('nfcCancel').textContent = 'Done';
+                nfcAbort = null;
+
+            } catch (err) {
+                if (err.name === 'AbortError') return; // user cancelled
+                document.getElementById('nfcIcon').textContent = '❌';
+                document.getElementById('nfcIcon').classList.remove('pulse');
+                document.getElementById('nfcTitle').textContent = 'Write Failed';
+                let msg = err.message || 'Unknown error';
+                if (err.name === 'NotAllowedError') {
+                    msg = 'NFC permission denied. Allow NFC access and try again.';
+                } else if (err.name === 'NotSupportedError') {
+                    msg = 'NFC is not available on this device.';
+                } else if (err.name === 'NotReadableError') {
+                    msg = 'Could not read the tag. Try holding it steady.';
+                }
+                document.getElementById('nfcDesc').textContent = msg;
+                document.getElementById('nfcStatus').textContent = 'Error';
+                document.getElementById('nfcStatus').className = 'nfc-status error';
+                document.getElementById('nfcCancel').textContent = 'Close';
+                nfcAbort = null;
+            }
+        }
+
+        function cancelNfcWrite() {
+            if (nfcAbort) {
+                nfcAbort.abort();
+                nfcAbort = null;
+            }
+            document.getElementById('nfcOverlay').classList.remove('show');
+        }
+
+        // Close NFC modal on overlay click
+        document.getElementById('nfcOverlay').addEventListener('click', e => {
+            if (e.target === e.currentTarget) cancelNfcWrite();
         });
 
         // Box memo auto-save
