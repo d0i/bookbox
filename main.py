@@ -138,6 +138,56 @@ def box_view(request: Request, box_id: str):
     })
 
 
+# ── Book Detail View ─────────────────────────────
+
+@app.get("/book/{book_id}", response_class=HTMLResponse)
+def book_view(request: Request, book_id: int):
+    conn = get_db()
+    book = conn.execute(
+        "SELECT bk.*, b.label AS box_label FROM books bk "
+        "JOIN boxes b ON b.id = bk.box_id WHERE bk.id = ?", (book_id,)
+    ).fetchone()
+    if not book:
+        conn.close()
+        return HTMLResponse("<h1>Book not found</h1>", status_code=404)
+    conn.close()
+    return templates.TemplateResponse("book.html", {
+        "request": request, "book": book,
+    })
+
+
+# ── Book / Box Memo APIs ─────────────────────────
+
+class MemoRequest(BaseModel):
+    memo: str
+
+
+@app.patch("/api/book/{book_id}")
+def update_book(book_id: int, req: MemoRequest):
+    conn = get_db()
+    book = conn.execute("SELECT id FROM books WHERE id = ?", (book_id,)).fetchone()
+    if not book:
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Book not found"}, status_code=404)
+    conn.execute("UPDATE books SET memo = ? WHERE id = ?", (req.memo, book_id))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True})
+
+
+@app.patch("/api/box/{box_id}/memo")
+def update_box_memo(box_id: str, req: MemoRequest):
+    conn = get_db()
+    box = conn.execute("SELECT id FROM boxes WHERE id = ?", (box_id,)).fetchone()
+    if not box:
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Box not found"}, status_code=404)
+    conn.execute("UPDATE boxes SET memo = ? WHERE id = ?", (req.memo, box_id))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True})
+
+
 # ── Archive / Restore / Delete box ───────────────
 
 @app.post("/api/box/{box_id}/archive")

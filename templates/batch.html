@@ -183,7 +183,9 @@
         let scannerRunning = false;
         let queue = [];  // [{isbn, title, author, genre, status:'ok'|'pending'|'error'}]
         let scannedIsbns = new Set();
+        let lastScannedCode = '';
         let lookupInFlight = 0;
+        let lastScannedCode = '';
 
         // ── Scanner ───────────────────────────
         function startScanner() {
@@ -214,6 +216,14 @@
         }
 
         function onScanSuccess(decodedText) {
+            // Debounce: silently ignore if same code scanned in succession
+            if (decodedText === lastScannedCode) return;
+            lastScannedCode = decodedText;
+
+            // Silently ignore same code scanned in succession
+            if (decodedText === lastScannedCode) return;
+            lastScannedCode = decodedText;
+
             const clean = decodedText.replace(/[^0-9X]/gi, '');
             if (clean.length !== 10 && clean.length !== 13) {
                 beepBad(); flashBar('bad');
@@ -221,7 +231,7 @@
                 return;
             }
             if (scannedIsbns.has(clean)) {
-                // Already scanned — gentle ignore
+                // Already scanned — gentle ignore (only when a different code was scanned in between)
                 setStatus('Already scanned: ' + clean, 'err');
                 return;
             }

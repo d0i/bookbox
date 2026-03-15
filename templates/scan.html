@@ -180,7 +180,7 @@
         }
 
         function onScanSuccess(decodedText) {
-            // Debounce: don't re-scan same code
+            // Debounce: silently ignore same code scanned in succession
             if (decodedText === lastScanned) return;
             lastScanned = decodedText;
 
@@ -189,7 +189,6 @@
             if (clean.length !== 10 && clean.length !== 13) {
                 document.getElementById('scanStatus').textContent = 'Not an ISBN. Try again…';
                 document.getElementById('scanStatus').className = 'scan-status error';
-                lastScanned = '';  // allow rescan
                 return;
             }
 

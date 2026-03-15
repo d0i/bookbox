@@ -15,7 +15,9 @@
                       box-shadow: 0 1px 3px rgba(0,0,0,0.1); color: #666; font-size: 0.9rem; }
         .book-list { list-style: none; }
         .book-item { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px;
-                     box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 10px; }
+                     box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 10px;
+                     text-decoration: none; color: inherit; }
+        .book-item:active { background: #f8f8f8; }
         .book-item.selected { border: 2px solid #1976d2; background: #e3f2fd; }
         .book-cb { width: 20px; height: 20px; flex-shrink: 0; display: none; }
         .select-mode .book-cb { display: block; }
@@ -63,6 +65,17 @@
         .rename-row button { padding: 8px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; }
         .rename-save { background: #1976d2; color: #fff; border: none; font-weight: 600; }
         .rename-cancel { background: #f5f5f5; border: 1.5px solid #ddd; color: #666; }
+
+        /* Memo */
+        .memo-section { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .memo-section label { display: block; font-weight: 600; font-size: 0.85rem; color: #666; margin-bottom: 6px; }
+        .memo-area { width: 100%; min-height: 80px; padding: 10px; border: 1.5px solid #ddd;
+                     border-radius: 8px; font-size: 0.9rem; font-family: inherit; resize: vertical;
+                     background: #fafafa; }
+        .memo-area:focus { outline: none; border-color: #1976d2; background: #fff; }
+        .save-status { font-size: 0.8rem; color: #999; margin-top: 4px; min-height: 1.2em; }
+        .save-status.saved { color: #4caf50; }
     </style>
 </head>
 <body>
@@ -101,15 +114,21 @@
     </div>
     {% endif %}
 
+    <div class="memo-section">
+        <label>📝 Box Memo</label>
+        <textarea class="memo-area" id="boxMemo" placeholder="Notes about this box…">{{ box.memo }}</textarea>
+        <div class="save-status" id="memoStatus"></div>
+    </div>
+
     {% if books %}
     <ul class="book-list" id="bookList">
         {% for book in books %}
         <li class="book-item" data-id="{{ book.id }}">
             <input type="checkbox" class="book-cb" onchange="updateSelection()">
-            <div class="book-info">
+            <a class="book-info" href="/book/{{ book.id }}" style="text-decoration:none; color:inherit; flex:1;">
                 <div class="book-title">{{ book.title }}</div>
                 <div class="book-meta">{{ book.author }}{% if book.genre %} · {{ book.genre }}{% endif %}</div>
-            </div>
+            </a>
         </li>
         {% endfor %}
     </ul>
@@ -212,6 +231,41 @@
             if (e.key === 'Enter') saveRename();
             if (e.key === 'Escape') cancelRename();
         });
+
+        // Box memo auto-save
+        (function() {
+            const memoEl = document.getElementById('boxMemo');
+            const statusEl = document.getElementById('memoStatus');
+            let saveTimer;
+            let original = memoEl.value;
+
+            memoEl.addEventListener('input', () => {
+                clearTimeout(saveTimer);
+                statusEl.textContent = '';
+                statusEl.className = 'save-status';
+                saveTimer = setTimeout(() => {
+                    const memo = memoEl.value;
+                    if (memo === original) return;
+                    statusEl.textContent = 'Saving…';
+                    fetch('/api/box/{{ box.id }}/memo', {
+                        method: 'PATCH',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({memo: memo}),
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.ok) {
+                            original = memo;
+                            statusEl.textContent = '\u2713 Saved';
+                            statusEl.className = 'save-status saved';
+                        } else {
+                            statusEl.textContent = 'Error saving';
+                        }
+                    })
+                    .catch(() => { statusEl.textContent = 'Network error'; });
+                }, 800);
+            });
+        })();
     </script>
 </body>
 </html>

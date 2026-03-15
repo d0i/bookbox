@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ book.title }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: #f5f5f5; color: #333; padding: 16px; max-width: 600px; margin: 0 auto; }
+        .back { text-decoration: none; color: #1976d2; font-size: 0.9rem; display: inline-block; margin-bottom: 12px; }
+        h1 { font-size: 1.4rem; margin-bottom: 4px; }
+        .meta { color: #666; font-size: 0.95rem; margin-bottom: 4px; }
+        .box-link { display: inline-block; color: #1976d2; text-decoration: none; font-size: 0.9rem;
+                    margin-bottom: 16px; }
+
+        .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 14px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card label { display: block; font-weight: 600; font-size: 0.85rem; color: #666; margin-bottom: 6px; }
+        .card .value { font-size: 1rem; }
+
+        /* Memo */
+        .memo-area { width: 100%; min-height: 120px; padding: 12px; border: 1.5px solid #ddd;
+                     border-radius: 8px; font-size: 0.95rem; font-family: inherit; resize: vertical;
+                     background: #fafafa; }
+        .memo-area:focus { outline: none; border-color: #1976d2; background: #fff; }
+        .save-status { font-size: 0.8rem; color: #999; margin-top: 6px; min-height: 1.2em; }
+        .save-status.saved { color: #4caf50; }
+    </style>
+</head>
+<body>
+    <a class="back" href="/box/{{ book.box_id }}">&larr; {{ book.box_label }}</a>
+    <h1>📖 {{ book.title }}</h1>
+    <div class="meta">{{ book.author }}{% if book.genre %} · {{ book.genre }}{% endif %}</div>
+    <a class="box-link" href="/box/{{ book.box_id }}">📦 {{ book.box_label }}</a>
+
+    <div class="card">
+        <label>📝 Memo</label>
+        <textarea class="memo-area" id="memoText" placeholder="Add notes about this book…">{{ book.memo }}</textarea>
+        <div class="save-status" id="saveStatus"></div>
+    </div>
+
+    <div class="card" style="font-size: 0.85rem; color: #999;">
+        Added {{ book.created_at }}
+    </div>
+
+    <script>
+        const textarea = document.getElementById('memoText');
+        const status = document.getElementById('saveStatus');
+        let saveTimer;
+        let original = textarea.value;
+
+        textarea.addEventListener('input', () => {
+            clearTimeout(saveTimer);
+            status.textContent = '';
+            status.className = 'save-status';
+            saveTimer = setTimeout(saveMemo, 800);
+        });
+
+        function saveMemo() {
+            const memo = textarea.value;
+            if (memo === original) return;
+            status.textContent = 'Saving…';
+            status.className = 'save-status';
+            fetch('/api/book/{{ book.id }}', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({memo: memo}),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    original = memo;
+                    status.textContent = '✓ Saved';
+                    status.className = 'save-status saved';
+                } else {
+                    status.textContent = 'Error saving';
+                }
+            })
+            .catch(() => { status.textContent = 'Network error'; });
+        }
+    </script>
+</body>
+</html>

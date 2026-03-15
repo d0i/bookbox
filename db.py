@@ -7,7 +7,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS boxes (
     id          TEXT PRIMARY KEY,   -- e.g. 'rox-001'
     label       TEXT NOT NULL,      -- friendly name
-    archived    INTEGER NOT NULL DEFAULT 0
+    archived    INTEGER NOT NULL DEFAULT 0,
+    memo        TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS books (
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS books (
     author      TEXT NOT NULL,
     genre       TEXT NOT NULL DEFAULT '',
     box_id      TEXT NOT NULL REFERENCES boxes(id),
+    memo        TEXT NOT NULL DEFAULT '',
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -33,9 +35,21 @@ def get_db() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn):
+    """Add columns that may not exist in older databases."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(boxes)").fetchall()}
+    if "memo" not in existing:
+        conn.execute("ALTER TABLE boxes ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(books)").fetchall()}
+    if "memo" not in existing:
+        conn.execute("ALTER TABLE books ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
+    conn.commit()
+
+
 def init_db():
     conn = get_db()
     conn.executescript(SCHEMA)
+    _migrate(conn)
     # Seed default boxes if empty
     count = conn.execute("SELECT COUNT(*) FROM boxes").fetchone()[0]
     if count == 0:
