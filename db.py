@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS books (
     page_count      INTEGER,
     language        TEXT NOT NULL DEFAULT '',
     thumbnail_url   TEXT NOT NULL DEFAULT '',
+    checked_out     INTEGER NOT NULL DEFAULT 0,
+    status_text     TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -55,6 +57,8 @@ def _migrate(conn):
         "page_count": "INTEGER",
         "language": "TEXT NOT NULL DEFAULT ''",
         "thumbnail_url": "TEXT NOT NULL DEFAULT ''",
+        "checked_out": "INTEGER NOT NULL DEFAULT 0",
+        "status_text": "TEXT NOT NULL DEFAULT ''",
     }
     for col, typedef in new_cols.items():
         if col not in existing:

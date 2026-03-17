@@ -29,6 +29,10 @@
         .book-title { font-weight: 600; }
         .book-meta { font-size: 0.85rem; color: #666; margin-top: 4px; }
         .empty { text-align: center; padding: 32px; color: #999; }
+        .out-badge { display: inline-block; background: #ff9800; color: #fff; font-size: 0.65rem;
+                     font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-left: 4px;
+                     vertical-align: middle; }
+        .book-item.checked-out { opacity: 0.65; }
 
         .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
         .btn { display: inline-block; background: #1976d2; color: #fff; padding: 10px 16px;
@@ -155,7 +159,7 @@
     {% if books %}
     <ul class="book-list" id="bookList">
         {% for book in books %}
-        <li class="book-item" data-id="{{ book.id }}">
+        <li class="book-item{% if book.checked_out %} checked-out{% endif %}" data-id="{{ book.id }}">
             <input type="checkbox" class="book-cb" onchange="updateSelection()">
             {% if book.thumbnail_url %}
             <img class="book-thumb" src="{{ book.thumbnail_url }}" alt="">
@@ -163,8 +167,8 @@
             <div class="book-thumb-ph">📖</div>
             {% endif %}
             <a class="book-info" href="/book/{{ book.id }}" style="text-decoration:none; color:inherit; flex:1;">
-                <div class="book-title">{{ book.title }}</div>
-                <div class="book-meta">{{ book.author }}{% if book.genre %} · {{ book.genre }}{% endif %}</div>
+                <div class="book-title">{{ book.title }}{% if book.checked_out %}<span class="out-badge">OUT</span>{% endif %}</div>
+                <div class="book-meta">{{ book.author }}{% if book.genre %} · {{ book.genre }}{% endif %}{% if book.status_text %} — <em style="color:#ff9800;">{{ book.status_text }}</em>{% endif %}</div>
             </a>
         </li>
         {% endfor %}

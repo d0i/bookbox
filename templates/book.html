@@ -56,6 +56,26 @@
         .save-status.saved { color: #4caf50; }
 
         .timestamp { font-size: 0.8rem; color: #aaa; text-align: center; margin-top: 8px; }
+
+        /* Status / checked-out */
+        .status-toggle { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .toggle-switch { position: relative; width: 48px; height: 28px; flex-shrink: 0; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-track { position: absolute; inset: 0; background: #ddd; border-radius: 14px; cursor: pointer;
+                        transition: background 0.2s; }
+        .toggle-track::after { content: ''; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px;
+                               background: #fff; border-radius: 50%; transition: transform 0.2s;
+                               box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+        .toggle-switch input:checked + .toggle-track { background: #ff9800; }
+        .toggle-switch input:checked + .toggle-track::after { transform: translateX(20px); }
+        .toggle-label { font-size: 0.95rem; font-weight: 600; }
+        .toggle-sub { font-size: 0.8rem; color: #999; font-weight: 400; }
+        .status-input { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px;
+                        font-size: 0.95rem; font-family: inherit; background: #fafafa; }
+        .status-input:focus { outline: none; border-color: #1976d2; background: #fff; }
+        .out-badge { display: inline-block; background: #ff9800; color: #fff; font-size: 0.7rem;
+                     font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 6px;
+                     vertical-align: middle; }
     </style>
 </head>
 <body>
@@ -72,6 +92,7 @@
             <div class="meta">{{ book.author }}</div>
             {% if book.genre %}<div class="meta" style="font-size:0.85rem;">{{ book.genre }}</div>{% endif %}
             <a class="box-link" href="/box/{{ book.box_id }}">📦 {{ book.box_label }}</a>
+            {% if book.checked_out %}<span class="out-badge">OUT</span>{% endif %}
         </div>
     </div>
 
@@ -94,6 +115,23 @@
             <span class="bib-label">Language</span>
             <span class="bib-value">{% if book.language %}{{ book.language }}{% else %}<span class="bib-empty">—</span>{% endif %}</span>
         </div>
+    </div>
+
+    <!-- Status / Checked Out -->
+    <div class="card">
+        <h3>📍 Status</h3>
+        <div class="status-toggle">
+            <label class="toggle-switch">
+                <input type="checkbox" id="checkedOut" {% if book.checked_out %}checked{% endif %} onchange="toggleCheckedOut()">
+                <span class="toggle-track"></span>
+            </label>
+            <div>
+                <span class="toggle-label" id="toggleLabel">{% if book.checked_out %}Out of box{% else %}In box{% endif %}</span><br>
+                <span class="toggle-sub">Mark when you take this book out</span>
+            </div>
+        </div>
+        <input type="text" class="status-input" id="statusText" placeholder="e.g. Reading at office, Lent to Tanaka…" value="{{ book.status_text }}">
+        <div class="save-status" id="statusSaveStatus"></div>
     </div>
 
     <!-- Move to another box -->
@@ -162,6 +200,52 @@
                 status.className = 'move-status err';
             });
         }
+
+        // ── Checked-out toggle ──────────────────
+        function toggleCheckedOut() {
+            const cb = document.getElementById('checkedOut');
+            const label = document.getElementById('toggleLabel');
+            label.textContent = cb.checked ? 'Out of box' : 'In box';
+            fetch('/api/book/' + BOOK_ID, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({checked_out: cb.checked ? 1 : 0}),
+            });
+        }
+
+        // ── Status text auto-save ──────────────
+        (function() {
+            const input = document.getElementById('statusText');
+            const statusEl = document.getElementById('statusSaveStatus');
+            let timer;
+            let orig = input.value;
+            input.addEventListener('input', () => {
+                clearTimeout(timer);
+                statusEl.textContent = '';
+                statusEl.className = 'save-status';
+                timer = setTimeout(() => {
+                    const val = input.value;
+                    if (val === orig) return;
+                    statusEl.textContent = 'Saving…';
+                    fetch('/api/book/' + BOOK_ID, {
+                        method: 'PATCH',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({status_text: val}),
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.ok) {
+                            orig = val;
+                            statusEl.textContent = '✓ Saved';
+                            statusEl.className = 'save-status saved';
+                        } else {
+                            statusEl.textContent = 'Error saving';
+                        }
+                    })
+                    .catch(() => { statusEl.textContent = 'Network error'; });
+                }, 800);
+            });
+        })();
 
         // ── Memo auto-save ─────────────────────
         const textarea = document.getElementById('memoText');

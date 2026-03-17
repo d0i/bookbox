@@ -185,6 +185,8 @@ def book_view(request: Request, book_id: int):
 class UpdateBookRequest(BaseModel):
     memo: str | None = None
     box_id: str | None = None
+    checked_out: int | None = None
+    status_text: str | None = None
 
 
 @app.patch("/api/book/{book_id}")
@@ -196,6 +198,10 @@ def update_book(book_id: int, req: UpdateBookRequest):
         return JSONResponse({"ok": False, "error": "Book not found"}, status_code=404)
     if req.memo is not None:
         conn.execute("UPDATE books SET memo = ? WHERE id = ?", (req.memo, book_id))
+    if req.checked_out is not None:
+        conn.execute("UPDATE books SET checked_out = ? WHERE id = ?", (1 if req.checked_out else 0, book_id))
+    if req.status_text is not None:
+        conn.execute("UPDATE books SET status_text = ? WHERE id = ?", (req.status_text, book_id))
     if req.box_id is not None:
         target = conn.execute(
             "SELECT * FROM boxes WHERE id = ? AND archived = 0", (req.box_id,)
@@ -313,9 +319,9 @@ def api_search(q: str = ""):
     rows = conn.execute(
         "SELECT bk.id, bk.title, bk.author, bk.genre, bk.isbn, bk.box_id, b.label AS box_label "
         "FROM books bk JOIN boxes b ON b.id = bk.box_id "
-        "WHERE b.archived = 0 AND (bk.title LIKE ? OR bk.author LIKE ? OR bk.genre LIKE ? OR bk.isbn LIKE ? OR bk.memo LIKE ? OR b.memo LIKE ?) "
+        "WHERE b.archived = 0 AND (bk.title LIKE ? OR bk.author LIKE ? OR bk.genre LIKE ? OR bk.isbn LIKE ? OR bk.memo LIKE ? OR bk.status_text LIKE ? OR b.memo LIKE ?) "
         "ORDER BY bk.title LIMIT 30",
-        (like, like, like, like, like, like),
+        (like, like, like, like, like, like, like),
     ).fetchall()
     conn.close()
     results = [{"id": r["id"], "title": r["title"], "author": r["author"],
