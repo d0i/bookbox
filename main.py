@@ -296,9 +296,9 @@ def api_search(q: str = ""):
     rows = conn.execute(
         "SELECT bk.id, bk.title, bk.author, bk.genre, bk.isbn, bk.box_id, b.label AS box_label "
         "FROM books bk JOIN boxes b ON b.id = bk.box_id "
-        "WHERE b.archived = 0 AND (bk.title LIKE ? OR bk.author LIKE ? OR bk.genre LIKE ? OR bk.isbn LIKE ?) "
+        "WHERE b.archived = 0 AND (bk.title LIKE ? OR bk.author LIKE ? OR bk.genre LIKE ? OR bk.isbn LIKE ? OR bk.memo LIKE ? OR b.memo LIKE ?) "
         "ORDER BY bk.title LIMIT 30",
-        (like, like, like, like),
+        (like, like, like, like, like, like),
     ).fetchall()
     conn.close()
     results = [{"id": r["id"], "title": r["title"], "author": r["author"],
