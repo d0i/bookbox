@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Books - BookBox</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: #f5f5f5; color: #333; padding: 16px; max-width: 600px; margin: 0 auto; }
+        .back { text-decoration: none; color: #1976d2; font-size: 0.9rem; display: inline-block; margin-bottom: 12px; }
+        h1 { font-size: 1.5rem; margin-bottom: 4px; }
+        .subtitle { font-size: 0.85rem; color: #999; margin-bottom: 16px; }
+
+        /* Sort / filter bar */
+        .toolbar { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+        .toolbar select { padding: 8px 10px; border: 1.5px solid #ddd; border-radius: 8px;
+                          font-size: 0.85rem; background: #fff; color: #333; flex: 1; min-width: 0; }
+        .toolbar select:focus { outline: none; border-color: #1976d2; }
+        .toolbar input { flex: 2; min-width: 0; padding: 8px 10px; border: 1.5px solid #ddd;
+                         border-radius: 8px; font-size: 0.85rem; background: #fff; }
+        .toolbar input:focus { outline: none; border-color: #1976d2; }
+
+        /* Book list */
+        .book-item { display: flex; gap: 12px; background: #fff; border-radius: 10px; padding: 12px;
+                     margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                     text-decoration: none; color: inherit; align-items: center; }
+        .book-item:active { background: #f0f7ff; }
+        .book-cover { width: 44px; height: 62px; border-radius: 4px; object-fit: cover;
+                      flex-shrink: 0; background: #e8e8e8; }
+        .book-cover-ph { width: 44px; height: 62px; border-radius: 4px; flex-shrink: 0;
+                         background: #e8e8e8; display: flex; align-items: center; justify-content: center;
+                         font-size: 1.3rem; color: #ccc; }
+        .book-info { flex: 1; min-width: 0; }
+        .book-title { font-weight: 600; font-size: 0.95rem; white-space: nowrap;
+                      overflow: hidden; text-overflow: ellipsis; }
+        .book-author { font-size: 0.82rem; color: #666; white-space: nowrap;
+                       overflow: hidden; text-overflow: ellipsis; }
+        .book-box { font-size: 0.72rem; color: #1976d2; margin-top: 2px;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .book-genre { font-size: 0.72rem; color: #999; }
+
+        .empty { text-align: center; padding: 40px 20px; color: #999; }
+        .empty a { color: #1976d2; }
+    </style>
+</head>
+<body>
+    <a class="back" href="/">&larr; All Boxes</a>
+    <h1>📚 All Books</h1>
+    <p class="subtitle">{{ books | length }} book{{ 's' if books | length != 1 else '' }} in {{ box_count }} box{{ 'es' if box_count != 1 else '' }}</p>
+
+    {% if books %}
+    <div class="toolbar">
+        <input type="text" id="filterInput" placeholder="Filter…" autocomplete="off">
+        <select id="sortSelect">
+            <option value="title">Title</option>
+            <option value="author">Author</option>
+            <option value="genre">Genre</option>
+            <option value="box">Box</option>
+            <option value="newest">Newest first</option>
+        </select>
+    </div>
+    {% endif %}
+
+    <div id="bookList">
+    {% if not books %}
+        <div class="empty">No books yet. <a href="/add">Add one!</a></div>
+    {% endif %}
+    {% for book in books %}
+    <a class="book-item" href="/book/{{ book.id }}"
+       data-title="{{ book.title | lower }}"
+       data-author="{{ book.author | lower }}"
+       data-genre="{{ book.genre | lower }}"
+       data-box="{{ book.box_label | lower }}"
+       data-created="{{ book.created_at }}">
+        {% if book.thumbnail_url %}
+        <img class="book-cover" src="{{ book.thumbnail_url }}" alt="">
+        {% else %}
+        <div class="book-cover-ph">📖</div>
+        {% endif %}
+        <div class="book-info">
+            <div class="book-title">{{ book.title }}</div>
+            <div class="book-author">{{ book.author }}{% if book.genre %} · <span class="book-genre">{{ book.genre }}</span>{% endif %}</div>
+            <div class="book-box">📦 {{ book.box_label }}</div>
+        </div>
+    </a>
+    {% endfor %}
+    </div>
+
+    <script>
+        const filterInput = document.getElementById('filterInput');
+        const sortSelect = document.getElementById('sortSelect');
+        const bookList = document.getElementById('bookList');
+
+        function getItems() {
+            return Array.from(bookList.querySelectorAll('.book-item'));
+        }
+
+        function applyFilterAndSort() {
+            const q = (filterInput ? filterInput.value : '').toLowerCase().trim();
+            const sort = sortSelect ? sortSelect.value : 'title';
+            const items = getItems();
+
+            // Filter
+            items.forEach(el => {
+                if (!q) { el.style.display = ''; return; }
+                const haystack = (el.dataset.title || '') + ' ' + (el.dataset.author || '') + ' ' +
+                                 (el.dataset.genre || '') + ' ' + (el.dataset.box || '');
+                el.style.display = haystack.includes(q) ? '' : 'none';
+            });
+
+            // Sort
+            const sorted = items.slice().sort((a, b) => {
+                if (sort === 'newest') {
+                    return (b.dataset.created || '').localeCompare(a.dataset.created || '');
+                }
+                const av = a.dataset[sort] || '';
+                const bv = b.dataset[sort] || '';
+                return av.localeCompare(bv);
+            });
+
+            sorted.forEach(el => bookList.appendChild(el));
+        }
+
+        if (filterInput) filterInput.addEventListener('input', applyFilterAndSort);
+        if (sortSelect) sortSelect.addEventListener('change', applyFilterAndSort);
+    </script>
+</body>
+</html>

@@ -74,6 +74,23 @@ def index(request: Request):
     })
 
 
+# ── All Books ────────────────────────────────────
+
+@app.get("/books", response_class=HTMLResponse)
+def all_books(request: Request):
+    conn = get_db()
+    books = conn.execute(
+        "SELECT bk.*, b.label AS box_label "
+        "FROM books bk JOIN boxes b ON b.id = bk.box_id "
+        "WHERE b.archived = 0 ORDER BY bk.title"
+    ).fetchall()
+    box_count = conn.execute("SELECT COUNT(*) FROM boxes WHERE archived = 0").fetchone()[0]
+    conn.close()
+    return templates.TemplateResponse("books.html", {
+        "request": request, "books": books, "box_count": box_count,
+    })
+
+
 # ── Add / Rename Box ─────────────────────────────
 
 class AddBoxRequest(BaseModel):
