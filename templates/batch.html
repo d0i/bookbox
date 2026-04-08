@@ -413,8 +413,96 @@
             });
 
             const boxId = document.getElementById('batchBox').value;
-            document.getElementById('confirmBtn').disabled = true;
-            document.getElementById('confirmBtn').textContent = 'Adding…';
+            const confirmBtn = document.getElementById('confirmBtn');
+
+            // Remove any previous duplicate warning
+            const oldWarn = document.getElementById('dupWarning');
+            if (oldWarn) oldWarn.remove();
+
+            // Phase 1: Check for duplicates
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Checking…';
+
+            const dupChecks = books.map(book => {
+                const params = new URLSearchParams();
+                if (book.isbn) params.set('isbn', book.isbn);
+                if (book.title) params.set('title', book.title);
+                if (book.author) params.set('author', book.author);
+                return fetch('/api/dup-check?' + params.toString())
+                    .then(r => r.json())
+                    .then(data => ({ book, duplicates: data.duplicates || [] }))
+                    .catch(() => ({ book, duplicates: [] }));
+            });
+
+            Promise.all(dupChecks).then(results => {
+                const withDups = results.filter(r => r.duplicates.length > 0);
+
+                if (withDups.length > 0) {
+                    // Show warning UI
+                    confirmBtn.disabled = false;
+                    confirmBtn.innerHTML = '✅ Add <span id="confirmCount">' + books.length + '</span> Books';
+
+                    const warn = document.createElement('div');
+                    warn.id = 'dupWarning';
+                    warn.style.cssText = 'background:#fff3e0;border:2px solid #ff9800;border-radius:10px;padding:16px;margin-bottom:14px;';
+
+                    let html = '<div style="font-weight:700;font-size:1rem;color:#e65100;margin-bottom:10px;">⚠️ Possible Duplicates Found</div>';
+                    withDups.forEach(r => {
+                        const b = r.book;
+                        html += '<div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #ffe0b2;">';
+                        html += '<div style="font-weight:600;font-size:0.95rem;color:#333;">' + esc(b.title || b.isbn) + '</div>';
+                        html += '<div style="font-size:0.8rem;color:#666;margin-bottom:6px;">' + esc(b.author) + (b.isbn ? ' · ISBN: ' + esc(b.isbn) : '') + '</div>';
+                        html += '<div style="font-size:0.82rem;color:#e65100;font-weight:600;margin-bottom:4px;">Matches existing:</div>';
+                        r.duplicates.forEach(d => {
+                            const matchLabel = d.match === 'isbn' ? 'ISBN match' : 'Title/Author match';
+                            html += '<div style="background:#fff;border:1px solid #ffe0b2;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:0.85rem;">';
+                            html += '<span style="font-weight:600;">' + esc(d.title) + '</span>';
+                            html += ' <span style="color:#666;">by ' + esc(d.author) + '</span>';
+                            if (d.box_label) html += ' <span style="color:#999;">in ' + esc(d.box_label) + '</span>';
+                            html += ' <span style="display:inline-block;background:#ff9800;color:#fff;font-size:0.7rem;padding:1px 6px;border-radius:4px;margin-left:4px;vertical-align:middle;">' + esc(matchLabel) + '</span>';
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                    });
+
+                    html += '<div style="display:flex;gap:10px;margin-top:14px;">';
+                    html += '<button onclick="addAllAnyway()" style="flex:1;padding:12px;background:#ff9800;color:#fff;border:none;border-radius:8px;font-size:0.95rem;font-weight:700;cursor:pointer;">Add All Anyway</button>';
+                    html += '<button onclick="cancelDupWarning()" style="flex:1;padding:12px;background:#fff;color:#e65100;border:2px solid #ff9800;border-radius:8px;font-size:0.95rem;font-weight:700;cursor:pointer;">Cancel</button>';
+                    html += '</div>';
+
+                    warn.innerHTML = html;
+
+                    // Insert above the confirm button
+                    confirmBtn.parentNode.insertBefore(warn, confirmBtn);
+
+                    // Store books and boxId for addAllAnyway
+                    window._pendingBatchBooks = books;
+                    window._pendingBatchBoxId = boxId;
+                } else {
+                    // No duplicates — proceed directly
+                    doBatchAdd(books, boxId);
+                }
+            }).catch(() => {
+                // If dup-check fails entirely, proceed anyway
+                doBatchAdd(books, boxId);
+            });
+        }
+
+        function addAllAnyway() {
+            const warn = document.getElementById('dupWarning');
+            if (warn) warn.remove();
+            doBatchAdd(window._pendingBatchBooks, window._pendingBatchBoxId);
+        }
+
+        function cancelDupWarning() {
+            const warn = document.getElementById('dupWarning');
+            if (warn) warn.remove();
+        }
+
+        function doBatchAdd(books, boxId) {
+            const confirmBtn = document.getElementById('confirmBtn');
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Adding…';
 
             fetch('/api/batch-add', {
                 method: 'POST',
@@ -443,8 +531,8 @@
             })
             .catch(() => alert('Network error.'))
             .finally(() => {
-                document.getElementById('confirmBtn').disabled = false;
-                document.getElementById('confirmBtn').innerHTML = '✅ Add <span id="confirmCount">' + queue.length + '</span> Books';
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '✅ Add <span id="confirmCount">' + queue.length + '</span> Books';
             });
         }
 

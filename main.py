@@ -426,6 +426,44 @@ def find_by_isbn(isbn: str):
     return JSONResponse({"isbn": isbn, "found": results})
 
 
+# ── Duplicate check API ───────────────────────
+
+@app.get("/api/dup-check")
+def api_dup_check(isbn: str = "", title: str = "", author: str = ""):
+    """Check if a book already exists by ISBN or title+author."""
+    conn = get_db()
+    dupes = []
+    seen_ids = set()
+    # Check by ISBN first
+    if isbn.strip():
+        rows = conn.execute(
+            "SELECT bk.id, bk.title, bk.author, bk.isbn, bk.box_id, b.label AS box_label "
+            "FROM books bk JOIN boxes b ON b.id = bk.box_id "
+            "WHERE bk.isbn = ? AND b.archived = 0",
+            (isbn.strip(),),
+        ).fetchall()
+        for r in rows:
+            seen_ids.add(r["id"])
+            dupes.append({"id": r["id"], "title": r["title"], "author": r["author"],
+                          "isbn": r["isbn"], "box_id": r["box_id"], "box_label": r["box_label"],
+                          "match": "isbn"})
+    # Check by title+author (case-insensitive)
+    if title.strip() and author.strip():
+        rows = conn.execute(
+            "SELECT bk.id, bk.title, bk.author, bk.isbn, bk.box_id, b.label AS box_label "
+            "FROM books bk JOIN boxes b ON b.id = bk.box_id "
+            "WHERE LOWER(bk.title) = LOWER(?) AND LOWER(bk.author) = LOWER(?) AND b.archived = 0",
+            (title.strip(), author.strip()),
+        ).fetchall()
+        for r in rows:
+            if r["id"] not in seen_ids:
+                dupes.append({"id": r["id"], "title": r["title"], "author": r["author"],
+                              "isbn": r["isbn"], "box_id": r["box_id"], "box_label": r["box_label"],
+                              "match": "title_author"})
+    conn.close()
+    return JSONResponse({"duplicates": dupes})
+
+
 # ── Scan page ────────────────────────────────────
 
 @app.get("/scan", response_class=HTMLResponse)

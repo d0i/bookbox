@@ -23,6 +23,7 @@
                       color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600;
                       cursor: pointer; }
         .submit-btn:active { background: #1565c0; }
+        .submit-btn:disabled { opacity: 0.5; }
         .success { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 8px; padding: 14px;
                    margin-bottom: 16px; }
         .success a { color: #1976d2; font-weight: 600; }
@@ -85,7 +86,8 @@
             {% if suggestion_reason %}<strong>⭐ Suggestion:</strong> {{ suggestion_reason }}{% endif %}
         </div>
 
-        <button type="submit" class="submit-btn">Add Book</button>
+        <div id="dupWarning"></div>
+        <button type="submit" class="submit-btn" id="submitBtn">Add Book</button>
     </form>
 
     <script>
@@ -121,6 +123,78 @@
         genre.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(fetchSuggestion, 400); });
         genre.addEventListener('change', fetchSuggestion);
     {% endif %}
+
+        // ── Duplicate check before submit ──
+        let skipDupCheck = false;
+        document.getElementById('addForm').addEventListener('submit', function(e) {
+            if (skipDupCheck) return; // allow normal submit
+            e.preventDefault();
+
+            const isbn = (document.querySelector('input[name="isbn"]') || {}).value || '';
+            const title = document.getElementById('title').value.trim();
+            const author = document.getElementById('author').value.trim();
+
+            if (!title || !author) { skipDupCheck = true; this.submit(); return; }
+
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Checking…';
+
+            const params = new URLSearchParams();
+            if (isbn) params.set('isbn', isbn);
+            params.set('title', title);
+            params.set('author', author);
+
+            const warnDiv = document.getElementById('dupWarning');
+            warnDiv.innerHTML = '';
+
+            fetch('/api/dup-check?' + params)
+                .then(r => r.json())
+                .then(data => {
+                    btn.disabled = false;
+                    btn.textContent = 'Add Book';
+                    if (data.duplicates && data.duplicates.length > 0) {
+                        let html = '<div style="background:#fff3e0;border:2px solid #ff9800;border-radius:10px;padding:16px;margin-bottom:14px;">';
+                        html += '<div style="font-weight:700;font-size:1rem;color:#e65100;margin-bottom:10px;">⚠️ This book may already be registered:</div>';
+                        data.duplicates.forEach(function(d) {
+                            const matchLabel = d.match === 'isbn' ? 'ISBN match' : 'Title/Author match';
+                            html += '<div style="background:#fff;border:1px solid #ffe0b2;border-radius:8px;padding:10px 12px;margin-bottom:8px;">';
+                            html += '<div style="font-weight:600;">' + escH(d.title);
+                            html += ' <span style="display:inline-block;background:#ff9800;color:#fff;font-size:0.7rem;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;">' + matchLabel + '</span></div>';
+                            html += '<div style="font-size:0.85rem;color:#555;">' + escH(d.author) + ' · Box: ' + escH(d.box_label) + '</div>';
+                            html += '</div>';
+                        });
+                        html += '<div style="display:flex;gap:8px;margin-top:14px;">';
+                        html += '<button type="button" id="dupAddAnyway" style="flex:1;padding:10px;background:#ff9800;color:#fff;border:none;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;">Add Anyway</button>';
+                        html += '<button type="button" id="dupCancel" style="flex:1;padding:10px;background:#fff;color:#e65100;border:1.5px solid #ff9800;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;">Cancel</button>';
+                        html += '</div></div>';
+                        warnDiv.innerHTML = html;
+                        document.getElementById('dupAddAnyway').addEventListener('click', function() {
+                            warnDiv.innerHTML = '';
+                            skipDupCheck = true;
+                            document.getElementById('addForm').submit();
+                        });
+                        document.getElementById('dupCancel').addEventListener('click', function() {
+                            warnDiv.innerHTML = '';
+                        });
+                    } else {
+                        skipDupCheck = true;
+                        document.getElementById('addForm').submit();
+                    }
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    btn.textContent = 'Add Book';
+                    skipDupCheck = true;
+                    document.getElementById('addForm').submit();
+                });
+        });
+
+        function escH(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
     </script>
 </body>
 </html>

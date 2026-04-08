@@ -318,10 +318,38 @@
             startScanner();
         }
 
-        // ── Handle form submit via fetch to stay on page ──
-        document.getElementById('addForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const fd = new FormData(this);
+        // ── Duplicate-check warning ──────────────
+        function showDupWarning(duplicates, onConfirm, onCancel) {
+            const old = document.getElementById('dupWarning');
+            if (old) old.remove();
+
+            const wrap = document.createElement('div');
+            wrap.id = 'dupWarning';
+            wrap.style.cssText = 'background:#fff3e0;border:2px solid #ff9800;border-radius:10px;padding:16px;margin-bottom:16px;';
+
+            let html = '<div style="font-weight:700;font-size:1rem;color:#e65100;margin-bottom:10px;">⚠️ This book may already be registered:</div>';
+            duplicates.forEach(d => {
+                const matchLabel = d.match === 'isbn' ? 'ISBN match' : 'Title/Author match';
+                html += '<div style="background:#fff;border:1px solid #ffe0b2;border-radius:8px;padding:10px 12px;margin-bottom:8px;">';
+                html += '<div style="font-weight:600;">' + esc(d.title);
+                html += ' <span style="display:inline-block;background:#ff9800;color:#fff;font-size:0.7rem;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;">' + matchLabel + '</span></div>';
+                html += '<div style="font-size:0.85rem;color:#555;">' + esc(d.author) + ' · Box: ' + esc(d.box_label) + '</div>';
+                html += '</div>';
+            });
+            html += '<div style="display:flex;gap:8px;margin-top:14px;">';
+            html += '<button id="dupAddAnyway" style="flex:1;padding:10px;background:#ff9800;color:#fff;border:none;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;">Add Anyway</button>';
+            html += '<button id="dupCancel" style="flex:1;padding:10px;background:#fff;color:#e65100;border:1.5px solid #ff9800;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;">Cancel</button>';
+            html += '</div>';
+            wrap.innerHTML = html;
+
+            const formDiv = document.getElementById('confirmForm');
+            formDiv.parentNode.insertBefore(wrap, formDiv);
+
+            document.getElementById('dupAddAnyway').addEventListener('click', () => { wrap.remove(); onConfirm(); });
+            document.getElementById('dupCancel').addEventListener('click', () => { wrap.remove(); onCancel(); });
+        }
+
+        function doAddBook(fd) {
             fetch('/add', { method: 'POST', body: fd })
                 .then(r => {
                     if (r.ok) {
@@ -335,6 +363,35 @@
                     }
                 })
                 .catch(() => alert('Network error.'));
+        }
+
+        // ── Handle form submit via fetch to stay on page ──
+        document.getElementById('addForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const fd = new FormData(this);
+            const isbn = fd.get('isbn') || '';
+            const title = fd.get('title') || '';
+            const author = fd.get('author') || '';
+
+            const params = new URLSearchParams();
+            if (isbn) params.set('isbn', isbn);
+            if (title) params.set('title', title);
+            if (author) params.set('author', author);
+
+            fetch('/api/dup-check?' + params)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.duplicates && data.duplicates.length > 0) {
+                        showDupWarning(
+                            data.duplicates,
+                            () => doAddBook(fd),
+                            () => { /* cancel — user stays on form */ }
+                        );
+                    } else {
+                        doAddBook(fd);
+                    }
+                })
+                .catch(() => doAddBook(fd));
         });
 
         function showSuccessAndReset(title, boxId, boxLabel) {
